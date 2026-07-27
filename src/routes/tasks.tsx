@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { TaskDetailsDrawer, type DrawerTask } from "@/components/TaskDetailsDrawer";
+import { TaskDetailsDrawer, type DrawerTask } from "@/features/tasks/components/TaskDetailsDrawer";
 import {
   Plus, Search, Filter, LayoutGrid, Table as TableIcon, Calendar as CalendarIcon,
   GitBranch, ChevronDown, MoreHorizontal, MessageSquare, Paperclip, CheckSquare,
