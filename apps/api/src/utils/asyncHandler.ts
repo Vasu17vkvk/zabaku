@@ -7,11 +7,11 @@ export function asyncHandler(
         next: NextFunction
     ) => Promise<unknown>
 ) {
-    return function (
+    return (
         req: Request,
         res: Response,
         next: NextFunction
-    ) {
+    ) => {
         Promise.resolve(fn(req, res, next)).catch(next);
     };
 }
