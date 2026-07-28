@@ -11,6 +11,8 @@ import {
     removeMember,
 } from "../controllers/workspace.controller";
 
+import projectRoutes from "./project.routes";
+
 const router = Router();
 
 router.post("/", authenticate, create);
@@ -39,6 +41,11 @@ router.delete(
     "/:workspaceId/members/:memberId",
     authenticate,
     removeMember
+);
+
+router.use(
+    "/:workspaceId/projects",
+    projectRoutes
 );
 
 export default router;

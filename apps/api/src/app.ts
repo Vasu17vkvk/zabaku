@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { errorMiddleware } from "./middleware/error.middleware";
 import workspaceRoutes from "./routes/workspace.routes";
+import projectManagementRoutes from "./routes/projectManagement.routes";
 
 const app = express();
 
@@ -21,5 +22,8 @@ console.log("✅ app.ts loaded");
 app.use(errorMiddleware);
 
 app.use("/workspaces", workspaceRoutes);
+
+app.use("/projects", projectManagementRoutes);
+
 
 export default app;
