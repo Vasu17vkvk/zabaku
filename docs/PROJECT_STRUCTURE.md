@@ -1,0 +1,638 @@
+
+# Zabaku Architecture Notes
+
+## Overview
+
+Zabaku follows a **feature-based architecture** while respecting the conventions of **TanStack Start** and **TanStack Router**.
+
+The goal is to keep the application scalable, maintainable, and easy to understand as new features are added.
+
+The architecture separates the application into distinct responsibilities:
+
+* Application infrastructure
+* Routing
+* Feature modules
+* Shared components
+* Shared hooks
+* UI primitives
+* Static assets
+
+Every folder exists for a specific purpose.
+
+---
+
+# Project Structure
+
+```text
+src/
+│
+├── assets/
+├── components/
+│   ├── layout/
+│   └── ui/
+│
+├── features/
+│   └── tasks/
+│
+├── hooks/
+├── lib/
+├── routes/
+│
+├── router.tsx
+├── routeTree.gen.ts
+├── server.ts
+├── start.ts
+└── styles.css
+```
+
+---
+
+# assets/
+
+```text
+assets/
+```
+
+## Purpose
+
+Stores static resources used inside the application.
+
+Examples
+
+* Logos
+* Icons
+* Images
+* Fonts
+* Illustrations
+
+Example
+
+```tsx
+import logo from "@/assets/zabaku-logo.png";
+```
+
+These assets are processed and optimised by Vite during build.
+
+---
+
+# components/
+
+Contains reusable user interface components.
+
+Rule:
+
+> Components should be reusable and should not contain business logic.
+
+---
+
+## components/layout/
+
+Contains application layout components.
+
+These organise the application but are not tied to one feature.
+
+Examples
+
+```text
+Navbar
+
+Sidebar
+
+Footer
+
+MobileBottomNav
+
+DashboardLayout
+```
+
+Current
+
+```text
+MobileBottomNav.tsx
+```
+
+Purpose
+
+Used throughout the application to navigate between pages.
+
+---
+
+## components/ui/
+
+Contains **shadcn/ui** components.
+
+Examples
+
+```text
+Button
+
+Card
+
+Dialog
+
+Input
+
+Badge
+
+Checkbox
+
+Calendar
+
+Avatar
+```
+
+These are UI building blocks.
+
+They are not feature components.
+
+Instead,
+
+```
+TaskCard
+```
+
+uses
+
+```
+Card
+Button
+Badge
+Avatar
+```
+
+Rule
+
+Do not move or heavily modify these components unless intentionally customising the design system.
+
+---
+
+# features/
+
+The most important folder.
+
+Each folder represents one business feature.
+
+Current
+
+```text
+features/
+
+tasks/
+```
+
+Future
+
+```text
+features/
+
+auth/
+
+dashboard/
+
+projects/
+
+workspace/
+
+analytics/
+
+notifications/
+
+settings/
+
+profile/
+
+ai/
+```
+
+Every feature owns its own logic.
+
+---
+
+## Example
+
+Tasks feature
+
+```text
+tasks/
+
+components/
+
+hooks/
+
+services/
+
+types.ts
+
+constants.ts
+
+index.ts
+```
+
+Everything related to Tasks stays together.
+
+Advantages
+
+* Easier maintenance
+* Better scalability
+* Cleaner imports
+* Clear ownership
+
+---
+
+## features/tasks/components/
+
+Current
+
+```text
+TaskDetailsDrawer.tsx
+```
+
+Purpose
+
+Displays detailed task information.
+
+This belongs to the Tasks feature because it has no meaning outside Tasks.
+
+---
+
+# hooks/
+
+Contains reusable custom React hooks.
+
+Hooks contain logic.
+
+They do not render UI.
+
+Current
+
+```text
+use-mobile.tsx
+```
+
+Purpose
+
+Determines whether the application is being viewed on a mobile device.
+
+Future examples
+
+```text
+useDebounce()
+
+useLocalStorage()
+
+useTheme()
+
+useWindowSize()
+
+useClipboard()
+```
+
+Rule
+
+If a hook is only used by one feature, place it inside that feature instead.
+
+---
+
+# lib/
+
+Contains application infrastructure.
+
+Unlike feature folders, `lib` contains utilities that support the application itself.
+
+Current
+
+```text
+utils.ts
+
+error-page.ts
+
+error-capture.ts
+```
+
+---
+
+## utils.ts
+
+Purpose
+
+Contains shared helper functions.
+
+Currently
+
+```tsx
+cn(...)
+```
+
+The `cn()` helper combines Tailwind CSS class names.
+
+Example
+
+```tsx
+className={cn(
+    "flex",
+    isActive && "bg-primary"
+)}
+```
+
+This is the standard shadcn utility.
+
+It remains in `lib` to preserve compatibility with shadcn/ui.
+
+---
+
+## error-page.ts
+
+Purpose
+
+Displays a friendly error page when an unexpected error occurs.
+
+Instead of crashing the application, users see a controlled error screen.
+
+---
+
+## error-capture.ts
+
+Purpose
+
+Captures unexpected runtime errors.
+
+Future versions may send these errors to monitoring services such as:
+
+* Sentry
+* PostHog
+* OpenTelemetry
+
+Currently it helps centralise error handling.
+
+---
+
+# routes/
+
+One of the most important folders.
+
+TanStack Router automatically generates routes from these files.
+
+Each file represents a page.
+
+Example
+
+```text
+index.tsx
+
+↓
+
+/
+```
+
+---
+
+```text
+dashboard.tsx
+
+↓
+
+/dashboard
+```
+
+---
+
+```text
+projects.tsx
+
+↓
+
+/projects
+```
+
+---
+
+```text
+settings.tsx
+
+↓
+
+/settings
+```
+
+---
+
+```text
+projects.$projectId.tsx
+
+↓
+
+/projects/:projectId
+```
+
+Dynamic routes use `$`.
+
+---
+
+## __root.tsx
+
+The application shell.
+
+Everything renders inside this component.
+
+Responsibilities
+
+* Global Layout
+* Providers
+* Error Boundary
+* Global CSS
+* Navigation
+* Scripts
+
+Think of it as
+
+```
+Application
+
+↓
+
+Root Layout
+
+↓
+
+Current Page
+```
+
+---
+
+# router.tsx
+
+Creates the application's router.
+
+Responsibilities
+
+* Initialise TanStack Router
+* Load generated route tree
+* Export router instance
+
+Without this file, routing does not exist.
+
+---
+
+# routeTree.gen.ts
+
+Auto-generated.
+
+Never edit manually.
+
+Generated by TanStack Router.
+
+Responsibilities
+
+* Maps files inside `routes/`
+* Creates the routing tree
+* Connects URLs to React components
+
+This file is regenerated automatically whenever routes change.
+
+---
+
+# server.ts
+
+Server entry point.
+
+Used by TanStack Start.
+
+Responsibilities
+
+* Handle incoming requests
+* Server-side rendering
+* Error handling
+
+This file starts the application on the server.
+
+---
+
+# start.ts
+
+Client entry point.
+
+Runs in the browser.
+
+Responsibilities
+
+* Hydrate React
+* Start client-side routing
+* Make the application interactive
+
+---
+
+# styles.css
+
+Global stylesheet.
+
+Responsibilities
+
+* Tailwind imports
+* Global styles
+* CSS variables
+* Theme configuration
+* Typography
+
+Every page inherits these styles.
+
+---
+
+# Why We Kept `routes/`
+
+TanStack Router uses file-based routing.
+
+Moving
+
+```
+src/routes/
+```
+
+would require changing the router configuration and regenerating the routing tree.
+
+Therefore the routes folder remains at the root of `src`.
+
+---
+
+# Why We Kept `lib/utils.ts`
+
+This file is used by shadcn/ui.
+
+It contains the standard `cn()` helper.
+
+Keeping it in `lib` avoids changing dozens of component imports and makes future shadcn updates easier.
+
+---
+
+# Why We Created `features/`
+
+A feature-based architecture groups related code together instead of grouping by file type.
+
+Instead of:
+
+```
+components/
+
+hooks/
+
+services/
+```
+
+for the whole application,
+
+we use:
+
+```
+features/
+
+tasks/
+
+projects/
+
+auth/
+```
+
+Each feature owns its own components, hooks, services, and types.
+
+This makes the application easier to extend and maintain.
+
+---
+
+# Future Growth
+
+As Zabaku evolves, new feature folders will be added naturally.
+
+For example:
+
+```text
+features/
+│
+├── auth/
+├── workspace/
+├── dashboard/
+├── projects/
+├── milestones/
+├── tasks/
+├── comments/
+├── analytics/
+├── notifications/
+├── profile/
+├── settings/
+└── ai/
+```
+
+Each feature should remain self-contained.
+
+The goal is to minimise coupling between features while maximising code organisation and maintainability.
+
+---
+
+## Guiding Principles
+
+1. **One responsibility per folder** – every directory has a clear purpose.
+2. **Keep business logic inside features** – feature code lives with the feature it supports.
+3. **Keep framework conventions** – preserve TanStack Start and TanStack Router structure where required.
+4. **Reuse shared UI** – use `components/ui` and `components/layout` for generic interface elements.
+5. **Grow the architecture organically** – create new folders when a feature needs them rather than scaffolding everything in advance.
+6. **Separate infrastructure from business logic** – `lib` supports the application, while `features` implement the product.
+
+These principles will help Zabaku remain organised as it grows from its current frontend into the full AI-powered startup workspace you planned.
