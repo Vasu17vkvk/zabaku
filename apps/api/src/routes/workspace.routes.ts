@@ -7,6 +7,8 @@ import {
     getAll,
     getById,
     update,
+    addMember,
+    removeMember,
 } from "../controllers/workspace.controller";
 
 const router = Router();
@@ -25,6 +27,18 @@ router.patch(
     "/:workspaceId",
     authenticate,
     update
+);
+
+router.post(
+    "/:workspaceId/members",
+    authenticate,
+    addMember
+);
+
+router.delete(
+    "/:workspaceId/members/:memberId",
+    authenticate,
+    removeMember
 );
 
 export default router;

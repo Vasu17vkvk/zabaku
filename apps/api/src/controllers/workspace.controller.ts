@@ -6,6 +6,7 @@ import { sendSuccess } from "../responses/apiResponse";
 import {
     createWorkspaceSchema,
     updateWorkspaceSchema,
+    addMemberSchema,
 } from "../validation/workspace.validation";
 
 import {
@@ -13,6 +14,8 @@ import {
     getUserWorkspaces,
     getWorkspaceById,
     updateWorkspace,
+    addMemberToWorkspace,
+    removeMemberFromWorkspace,
 } from "../services/workspace.service";
 
 
@@ -70,6 +73,38 @@ export const update = asyncHandler(async (req: Request, res: Response) => {
         res,
         200,
         "Workspace updated successfully",
+        workspace
+    );
+});
+
+export const addMember = asyncHandler(async (req: Request, res: Response) => {
+    const validatedData = addMemberSchema.parse(req.body);
+
+    const workspace = await addMemberToWorkspace(
+        req.params.workspaceId as string,
+        req.user!._id.toString(),
+        validatedData
+    );
+
+    return sendSuccess(
+        res,
+        200,
+        "Member added successfully",
+        workspace
+    );
+});
+
+export const removeMember = asyncHandler(async (req, res) => {
+    const workspace = await removeMemberFromWorkspace(
+        req.params.workspaceId as string,
+        req.user!._id.toString(),
+        req.params.memberId as string
+    );
+
+    return sendSuccess(
+        res,
+        200,
+        "Member removed successfully",
         workspace
     );
 });
