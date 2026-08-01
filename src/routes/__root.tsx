@@ -8,8 +8,11 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
 
+import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { MobileBottomNav } from "../components/layout/MobileBottomNav";
+import { AuthProvider } from "../context/AuthContext";
+import { useSocketEvents } from "../hooks/useSocketEvents";
 
 function NotFoundComponent() {
   return (
@@ -108,17 +111,26 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function RootContent() {
+  useSocketEvents();
+
+  return (
+    <div className="pb-24 md:pb-0">
+      <Outlet />
+      <Toaster position="top-right" richColors />
+    </div>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* SmoothCursor is scoped to the landing hero section */}
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <div className="pb-24 md:pb-0">
-        <Outlet />
-      </div>
-      <MobileBottomNav />
+      <AuthProvider>
+        <RootContent />
+        <MobileBottomNav />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

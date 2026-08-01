@@ -1,5 +1,7 @@
 import zabakuLogo from "@/assets/zabaku-logo.png.asset.json";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useState } from "react";
 import {
   LayoutDashboard, FolderKanban, CheckSquare, Users, Sparkles, BarChart3,
@@ -7,8 +9,14 @@ import {
   ArrowDownRight, MoreHorizontal, Circle, CheckCircle2, Clock, GitBranch,
   MessageSquare, Zap, Send, Filter, Calendar as CalendarIcon, ChevronLeft,
   ChevronRight, TrendingUp, Bot, PlayCircle, FileText, Rocket, Inbox,
-  Kanban, HelpCircle,
+  Kanban, HelpCircle, RefreshCw, AlertCircle, Loader2,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspaces, getPersistedWorkspaceId } from "@/features/workspaces/hooks";
+import { useProjects } from "@/features/projects/hooks";
+import { useDashboard } from "@/features/dashboard/hooks";
+import { useUnreadNotifications } from "@/features/notifications/hooks";
+import type { ApiDashboardData, ApiDashboardRecentProject } from "@/features/dashboard/api";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -21,33 +29,99 @@ export const Route = createFileRoute("/dashboard")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: DashboardPage,
+  beforeLoad: requireAuth,
+  component: () => <ProtectedRoute><DashboardPage /></ProtectedRoute>,
 });
 
 function DashboardPage() {
+  const { data: dashboard, isLoading, isError, error, refetch } = useDashboard();
+  const { user } = useAuth();
+  const { data: workspaces = [] } = useWorkspaces();
+  const activeWorkspaceId = getPersistedWorkspaceId();
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const { data: rawProjects = [] } = useProjects(activeWorkspace?.id ?? null);
+
+  const userName = user?.name ?? "Jules";
+  const firstName = userName.split(" ")[0];
+  const workspaceName = activeWorkspace?.name ?? "Northwind";
+
   return (
     <div className="min-h-screen bg-[oklch(0.985_0.005_265)] text-foreground">
       <div className="flex min-h-screen">
-        <Sidebar />
+        <Sidebar activeWorkspace={activeWorkspace} user={user} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar />
+          <Topbar user={user} />
           <main className="min-w-0 flex-1 px-6 py-6 lg:px-10 lg:py-8">
-            <PageHeader />
-            <StatCards />
-            <div className="mt-6 grid grid-cols-12 gap-6">
-              <div className="col-span-12 xl:col-span-8 space-y-6">
-                <VelocityChart />
-                <ProjectsTable />
-                <ActivityFeed />
+            <PageHeader firstName={firstName} workspaceName={workspaceName} />
+
+            {/* Error Banner */}
+            {isError && (
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+                <div className="flex items-center gap-2 font-medium">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{error instanceof Error ? error.message : "Failed to load dashboard data."}</span>
+                </div>
+                <button
+                  onClick={() => refetch()}
+                  className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+                >
+                  <RefreshCw className="h-3 w-3" /> Retry
+                </button>
               </div>
-              <div className="col-span-12 xl:col-span-4 space-y-6">
-                <AiAssistant />
-                <QuickActions />
-                <CalendarCard />
-                <NotificationsCard />
-              </div>
-            </div>
+            )}
+
+            {/* Skeleton Loading State */}
+            {isLoading ? (
+              <DashboardSkeleton />
+            ) : (
+              <>
+                <StatCards dashboard={dashboard} projectsCount={rawProjects.length} />
+                <div className="mt-6 grid grid-cols-12 gap-6">
+                  <div className="col-span-12 xl:col-span-8 space-y-6">
+                    <VelocityChart velocity={dashboard?.velocity} />
+                    <ProjectsTable dashboardProjects={dashboard?.recentProjects} rawProjects={rawProjects} />
+                    <ActivityFeed dashboardActivity={dashboard?.recentActivity} />
+                  </div>
+                  <div className="col-span-12 xl:col-span-4 space-y-6">
+                    <AiAssistant firstName={firstName} />
+                    <QuickActions />
+                    <CalendarCard />
+                    <NotificationsCard />
+                  </div>
+                </div>
+              </>
+            )}
           </main>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================== SKELETON =========================== */
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 mt-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-28 rounded-xl border border-border/70 bg-white p-4 shadow-xs animate-pulse">
+            <div className="h-3 w-20 rounded bg-secondary/80" />
+            <div className="mt-4 h-8 w-16 rounded bg-secondary/60" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-12 gap-6">
+        <div className="col-span-12 xl:col-span-8 space-y-6">
+          <div className="h-64 rounded-xl border border-border/70 bg-white p-5 animate-pulse">
+            <div className="h-4 w-32 rounded bg-secondary/80" />
+          </div>
+          <div className="h-64 rounded-xl border border-border/70 bg-white p-5 animate-pulse">
+            <div className="h-4 w-32 rounded bg-secondary/80" />
+          </div>
+        </div>
+        <div className="col-span-12 xl:col-span-4 space-y-6">
+          <div className="h-48 rounded-xl border border-border/70 bg-white p-5 animate-pulse" />
+          <div className="h-48 rounded-xl border border-border/70 bg-white p-5 animate-pulse" />
         </div>
       </div>
     </div>
@@ -61,20 +135,24 @@ function LogoMark({ size = 26 }: { size?: number }) {
   );
 }
 
-function Sidebar() {
+function Sidebar({ activeWorkspace, user }: { activeWorkspace?: { name: string; slug?: string }; user?: { name?: string } | null }) {
   const nav = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard", active: true, badge: null },
-    { icon: FolderKanban, label: "Projects", href: "#", active: false, badge: "12" },
-    { icon: CheckSquare, label: "Tasks", href: "#", active: false, badge: "48" },
-    { icon: Users, label: "Workspace", href: "#", active: false, badge: null },
-    { icon: Sparkles, label: "AI", href: "#", active: false, badge: "New" },
-    { icon: BarChart3, label: "Analytics", href: "#", active: false, badge: null },
-    { icon: Bell, label: "Notifications", href: "#", active: false, badge: "3" },
+    { icon: FolderKanban, label: "Projects", href: "/projects", active: false, badge: null },
+    { icon: CheckSquare, label: "Tasks", href: "/tasks", active: false, badge: null },
+    { icon: Users, label: "Workspace", href: "/settings", active: false, badge: null },
+    { icon: Sparkles, label: "AI", href: "/ai", active: false, badge: "New" },
+    { icon: BarChart3, label: "Analytics", href: "/analytics", active: false, badge: null },
+    { icon: Bell, label: "Notifications", href: "/notifications", active: false, badge: null },
   ];
   const account = [
-    { icon: User, label: "Profile", href: "#" },
-    { icon: Settings, label: "Settings", href: "#" },
+    { icon: User, label: "Profile", href: "/profile" },
+    { icon: Settings, label: "Settings", href: "/settings" },
   ];
+
+  const wsName = activeWorkspace?.name ?? "Northwind";
+  const wsInitial = wsName.charAt(0).toUpperCase();
+
   return (
     <aside className="hidden w-[248px] shrink-0 flex-col border-r border-border/70 bg-white/60 backdrop-blur-xl lg:flex">
       {/* brand */}
@@ -88,14 +166,14 @@ function Sidebar() {
 
       {/* Workspace switcher pill */}
       <div className="px-3 pt-4">
-        <button className="flex w-full items-center gap-2.5 rounded-lg border border-border/70 bg-surface px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-secondary">
-          <span className="grid h-6 w-6 place-items-center rounded-md text-[10px] font-bold text-white" style={{ background: "oklch(0.55 0.22 279)" }}>NW</span>
+        <Link to="/settings" className="flex w-full items-center gap-2.5 rounded-lg border border-border/70 bg-surface px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-secondary">
+          <span className="grid h-6 w-6 place-items-center rounded-md text-[10px] font-bold text-white shadow-xs" style={{ background: "oklch(0.55 0.22 279)" }}>{wsInitial}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[12px] font-semibold text-foreground">Northwind</p>
+            <p className="truncate text-[12px] font-semibold text-foreground">{wsName}</p>
             <p className="truncate text-[10.5px] text-muted-foreground">Pro workspace</p>
           </div>
           <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+        </Link>
       </div>
 
       {/* Nav */}
@@ -104,8 +182,8 @@ function Sidebar() {
         <ul className="space-y-0.5">
           {nav.map((item) => (
             <li key={item.label}>
-              <a
-                href={item.href}
+              <Link
+                to={item.href}
                 className={`group flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all ${
                   item.active
                     ? "bg-secondary text-foreground shadow-xs"
@@ -123,7 +201,7 @@ function Sidebar() {
                     {item.badge}
                   </span>
                 )}
-              </a>
+              </Link>
             </li>
           ))}
         </ul>
@@ -132,10 +210,10 @@ function Sidebar() {
         <ul className="space-y-0.5">
           {account.map((item) => (
             <li key={item.label}>
-              <a href={item.href} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground">
+              <Link to={item.href} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground">
                 <item.icon className="h-4 w-4" />
                 {item.label}
-              </a>
+              </Link>
             </li>
           ))}
         </ul>
@@ -162,7 +240,11 @@ function Sidebar() {
 }
 
 /* =========================== TOPBAR =========================== */
-function Topbar() {
+function Topbar({ user }: { user?: { name?: string } | null }) {
+  const userName = user?.name ?? "User";
+  const initials = userName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U";
+  const { data: unreadCount = 0 } = useUnreadNotifications();
+
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/70 bg-background/70 px-4 backdrop-blur-xl lg:px-8">
       {/* Search */}
@@ -180,33 +262,37 @@ function Topbar() {
       </div>
 
       {/* AI Prompt */}
-      <button className="hidden h-9 items-center gap-2 rounded-lg border border-border/70 bg-gradient-to-r from-primary/8 to-accent/8 px-3 text-[12.5px] font-semibold text-foreground shadow-xs transition-all hover:from-primary/12 hover:to-accent/12 md:flex">
+      <Link to="/ai" className="hidden h-9 items-center gap-2 rounded-lg border border-border/70 bg-gradient-to-r from-primary/8 to-accent/8 px-3 text-[12.5px] font-semibold text-foreground shadow-xs transition-all hover:from-primary/12 hover:to-accent/12 md:flex">
         <span className="grid h-5 w-5 place-items-center rounded-md bg-gradient-primary text-white">
           <Sparkles className="h-3 w-3" />
         </span>
         Ask AI
         <span className="text-muted-foreground">·</span>
         <span className="text-muted-foreground">Draft, plan, summarize</span>
-      </button>
+      </Link>
 
       {/* Notifications */}
-      <button className="relative grid h-9 w-9 place-items-center rounded-lg border border-border/70 bg-surface text-muted-foreground shadow-xs transition-colors hover:bg-secondary hover:text-foreground">
+      <Link to="/notifications" className="relative grid h-9 w-9 place-items-center rounded-lg border border-border/70 bg-surface text-muted-foreground shadow-xs transition-colors hover:bg-secondary hover:text-foreground">
         <Bell className="h-4 w-4" />
-        <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-danger ring-2 ring-background" />
-      </button>
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white ring-2 ring-background">
+            {unreadCount}
+          </span>
+        )}
+      </Link>
 
       {/* Profile */}
-      <button className="flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-surface pl-1 pr-2.5 shadow-xs transition-colors hover:bg-secondary">
-        <span className="grid h-7 w-7 place-items-center rounded-md text-[10.5px] font-semibold text-white" style={{ background: "oklch(0.55 0.22 279)" }}>JL</span>
-        <span className="hidden text-[12.5px] font-semibold text-foreground sm:inline">Jules L.</span>
+      <Link to="/profile" className="flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-surface pl-1 pr-2.5 shadow-xs transition-colors hover:bg-secondary">
+        <span className="grid h-7 w-7 place-items-center rounded-md text-[10.5px] font-semibold text-white" style={{ background: "oklch(0.55 0.22 279)" }}>{initials}</span>
+        <span className="hidden text-[12.5px] font-semibold text-foreground sm:inline">{userName}</span>
         <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:inline" />
-      </button>
+      </Link>
     </header>
   );
 }
 
 /* =========================== PAGE HEADER =========================== */
-function PageHeader() {
+function PageHeader({ firstName, workspaceName }: { firstName: string; workspaceName: string }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 sm:flex sm:flex-wrap sm:justify-between">
       <div className="min-w-0">
@@ -216,9 +302,9 @@ function PageHeader() {
           <span className="text-foreground">Dashboard</span>
         </div>
         <h1 className="mt-1 truncate text-[24px] font-semibold tracking-[-0.02em] text-foreground sm:text-[26px]">
-          Good morning, Jules
+          Good morning, {firstName}
         </h1>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">Here's what's happening across Northwind today.</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">Here's what's happening across {workspaceName} today.</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <button className="flex h-9 items-center gap-1.5 rounded-lg border border-border/70 bg-surface px-3 text-[12.5px] font-semibold text-foreground shadow-xs hover:bg-secondary">
@@ -226,23 +312,70 @@ function PageHeader() {
           Last 30 days
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </button>
-        <button className="flex h-9 items-center gap-1.5 rounded-lg bg-gradient-primary px-3 text-[12.5px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02]">
+        <Link to="/projects" className="flex h-9 items-center gap-1.5 rounded-lg bg-gradient-primary px-3 text-[12.5px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02]">
           <Plus className="h-3.5 w-3.5" />
           New project
-        </button>
+        </Link>
       </div>
     </div>
   );
 }
 
 /* =========================== STAT CARDS =========================== */
-function StatCards() {
+function StatCards({
+  dashboard,
+  projectsCount,
+}: {
+  dashboard?: ApiDashboardData;
+  projectsCount: number;
+}) {
+  const totalWorkspaces = dashboard?.totalWorkspaces ?? 1;
+  const totalProjects = dashboard?.totalProjects ?? projectsCount;
+  const totalTasks = dashboard?.totalTasks ?? 0;
+  const completedTasks =
+    dashboard?.completedTasks ?? dashboard?.shippedTasks ?? dashboard?.tasksByStatus?.done ?? 0;
+  const completionRate =
+    dashboard?.completionRate ?? (totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0);
+
   const cards = [
-    { label: "Projects", value: "24", delta: "+3", up: true, hint: "vs last month", spark: [8, 10, 12, 11, 14, 16, 18, 20, 22, 24], color: "oklch(0.55 0.22 279)" },
-    { label: "Tasks", value: "182", delta: "+18", up: true, hint: "42 due this week", spark: [90, 95, 110, 125, 140, 150, 160, 170, 175, 182], color: "oklch(0.72 0.16 180)" },
-    { label: "Completed", value: "138", delta: "+24", up: true, hint: "75.8% completion", spark: [40, 55, 70, 85, 90, 100, 115, 125, 132, 138], color: "oklch(0.68 0.16 155)" },
-    { label: "AI Requests", value: "4,821", delta: "-6%", up: false, hint: "vs last week", spark: [500, 620, 720, 810, 900, 780, 650, 700, 620, 580], color: "oklch(0.62 0.19 30)" },
+    {
+      label: "Workspaces",
+      value: String(totalWorkspaces),
+      delta: "+1",
+      up: true,
+      hint: "active workspace",
+      spark: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      color: "oklch(0.68 0.16 320)",
+    },
+    {
+      label: "Projects",
+      value: String(totalProjects),
+      delta: "+3",
+      up: true,
+      hint: "in flight",
+      spark: [8, 10, 12, 11, 14, 16, 18, 20, 22, Math.max(1, totalProjects)],
+      color: "oklch(0.55 0.22 279)",
+    },
+    {
+      label: "Tasks",
+      value: String(totalTasks),
+      delta: "+18",
+      up: true,
+      hint: `${dashboard?.tasksByStatus?.in_progress ?? 0} in progress`,
+      spark: [10, 15, 25, 30, 45, 60, 75, 90, 110, Math.max(1, totalTasks)],
+      color: "oklch(0.72 0.16 180)",
+    },
+    {
+      label: "Completed",
+      value: String(completedTasks),
+      delta: `${completionRate}%`,
+      up: true,
+      hint: "completion rate",
+      spark: [5, 10, 15, 20, 30, 45, 60, 80, 100, Math.max(1, completedTasks)],
+      color: "oklch(0.68 0.16 155)",
+    },
   ];
+
   return (
     <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((c) => (
@@ -300,13 +433,13 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 }
 
 /* =========================== VELOCITY CHART =========================== */
-function VelocityChart() {
-  const weeks = ["W1","W2","W3","W4","W5","W6","W7","W8","W9","W10","W11","W12"];
-  const planned = [22, 28, 30, 26, 34, 38, 36, 42, 45, 48, 52, 58];
-  const shipped = [18, 24, 26, 24, 30, 32, 34, 40, 42, 44, 50, 55];
+function VelocityChart({ velocity }: { velocity?: ApiDashboardData["velocity"] }) {
+  const weeks = velocity?.weeks ?? ["W1","W2","W3","W4","W5","W6","W7","W8","W9","W10","W11","W12"];
+  const planned = velocity?.planned ?? [22, 28, 30, 26, 34, 38, 36, 42, 45, 48, 52, 58];
+  const shipped = velocity?.shipped ?? [18, 24, 26, 24, 30, 32, 34, 40, 42, 44, 50, 55];
   const w = 640, h = 220, pad = 28;
-  const max = 64;
-  const bw = (w - pad * 2) / weeks.length;
+  const max = Math.max(...planned, ...shipped, 64);
+  const bw = (w - pad * 2) / Math.max(1, weeks.length);
 
   const line = (arr: number[]) =>
     "M " + arr.map((v, i) => {
@@ -321,9 +454,11 @@ function VelocityChart() {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Project velocity</h2>
-            <span className="rounded bg-success/12 px-1.5 py-0.5 text-[10.5px] font-semibold text-success">+23%</span>
+            <span className="rounded bg-success/12 px-1.5 py-0.5 text-[10.5px] font-semibold text-success">
+              +{velocity?.percentageChange ?? 23}%
+            </span>
           </div>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">Story points shipped vs. planned · last 12 weeks</p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">Story points shipped vs. planned · last {weeks.length} weeks</p>
         </div>
         <div className="flex items-center gap-3 text-[11.5px]">
           <span className="flex items-center gap-1.5 text-muted-foreground"><span className="h-2 w-2 rounded-sm bg-primary/25 ring-1 ring-primary/40" /> Planned</span>
@@ -378,14 +513,47 @@ function VelocityChart() {
 }
 
 /* =========================== PROJECTS TABLE =========================== */
-function ProjectsTable() {
-  const rows = [
+function ProjectsTable({
+  dashboardProjects,
+  rawProjects,
+}: {
+  dashboardProjects?: ApiDashboardRecentProject[];
+  rawProjects: any[];
+}) {
+  const DEFAULT_ROWS = [
     { name: "Payments v2", key: "PAY-14", owner: "AK", ownerColor: "oklch(0.72 0.16 180)", status: "On track", statusTone: "success", progress: 78, due: "Aug 12" },
     { name: "Onboarding revamp", key: "ONB-08", owner: "MB", ownerColor: "oklch(0.75 0.16 92)", status: "At risk", statusTone: "warning", progress: 42, due: "Jul 30" },
     { name: "Mobile beta", key: "MOB-03", owner: "SR", ownerColor: "oklch(0.68 0.17 28)", status: "On track", statusTone: "success", progress: 61, due: "Sep 04" },
     { name: "Design system 3.0", key: "DS-22", owner: "JL", ownerColor: "oklch(0.55 0.22 279)", status: "In review", statusTone: "info", progress: 92, due: "Jul 28" },
     { name: "AI copilot rollout", key: "AI-01", owner: "PS", ownerColor: "oklch(0.62 0.19 30)", status: "Blocked", statusTone: "danger", progress: 28, due: "Aug 20" },
   ];
+
+  let rows = DEFAULT_ROWS;
+
+  if (dashboardProjects && dashboardProjects.length > 0) {
+    rows = dashboardProjects.map((p, i) => ({
+      name: p.name ?? "Project",
+      key: p.key ?? `PRJ-${i + 1}`,
+      owner: p.owner ?? "AK",
+      ownerColor: p.ownerColor ?? "oklch(0.55 0.22 279)",
+      status: p.status ?? "On track",
+      statusTone: p.statusTone ?? "success",
+      progress: p.progress ?? 0,
+      due: p.due ?? p.dueDate ?? "–",
+    }));
+  } else if (rawProjects && rawProjects.length > 0) {
+    rows = rawProjects.slice(0, 5).map((p: any, i: number) => ({
+      name: p.name,
+      key: p.key ?? `PRJ-${i + 1}`,
+      owner: p.members?.[0]?.initials ?? "AK",
+      ownerColor: p.color ?? "oklch(0.55 0.22 279)",
+      status: p.status ?? "On track",
+      statusTone: p.status === "At risk" ? "warning" : p.status === "Blocked" ? "danger" : p.status === "In review" ? "info" : "success",
+      progress: p.progress ?? 0,
+      due: p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "–",
+    }));
+  }
+
   const tone = (t: string) => ({
     success: "bg-success/12 text-success",
     warning: "bg-warning/12 text-warning",
@@ -398,13 +566,13 @@ function ProjectsTable() {
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 px-5 py-3.5 sm:flex sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Active projects</h2>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">5 of 24 in flight</p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">{rows.length} in flight</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="hidden h-8 items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 text-[11.5px] font-medium text-muted-foreground hover:bg-secondary sm:flex">
+          <Link to="/projects" className="hidden h-8 items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 text-[11.5px] font-medium text-muted-foreground hover:bg-secondary sm:flex">
             <Kanban className="h-3.5 w-3.5" /> Board
-          </button>
-          <button className="text-[12px] font-semibold text-primary hover:underline">View all →</button>
+          </Link>
+          <Link to="/projects" className="text-[12px] font-semibold text-primary hover:underline">View all →</Link>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -419,8 +587,8 @@ function ProjectsTable() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.key} className="border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
+            {rows.map((r, i) => (
+              <tr key={r.key ?? i} className="border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
                 <td className="py-3 pl-5 pr-3">
                   <div className="flex items-center gap-2.5">
                     <span className="grid h-6 w-6 place-items-center rounded-md bg-secondary text-muted-foreground">
@@ -460,14 +628,28 @@ function ProjectsTable() {
 }
 
 /* =========================== ACTIVITY FEED =========================== */
-function ActivityFeed() {
-  const items = [
+function ActivityFeed({ dashboardActivity }: { dashboardActivity?: ApiDashboardData["recentActivity"] }) {
+  const DEFAULT_ITEMS = [
     { who: "Ada K.", color: "oklch(0.72 0.16 180)", initials: "AK", action: "shipped", target: "PAY-142 · Refund flow polish", time: "2m ago", icon: CheckCircle2, tone: "text-success" },
     { who: "Zabaku AI", color: "oklch(0.55 0.22 279)", initials: "AI", action: "generated 6 tickets in", target: "Onboarding revamp", time: "12m ago", icon: Sparkles, tone: "text-primary" },
     { who: "Mira B.", color: "oklch(0.75 0.16 92)", initials: "MB", action: "commented on", target: "DS-22 · Motion tokens", time: "34m ago", icon: MessageSquare, tone: "text-muted-foreground" },
     { who: "Sai R.", color: "oklch(0.68 0.17 28)", initials: "SR", action: "opened PR on", target: "MOB-03 · Push notifications", time: "1h ago", icon: GitBranch, tone: "text-muted-foreground" },
     { who: "Priya S.", color: "oklch(0.62 0.19 30)", initials: "PS", action: "merged", target: "AI-01 · Copilot guardrails", time: "3h ago", icon: CheckCircle2, tone: "text-success" },
   ];
+
+  const items = dashboardActivity && dashboardActivity.length > 0
+    ? dashboardActivity.map((it) => ({
+        who: it.who ?? "Teammate",
+        color: it.color ?? "oklch(0.55 0.22 279)",
+        initials: it.initials ?? (it.who ? it.who.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "U"),
+        action: it.action ?? "updated",
+        target: it.target ?? "task",
+        time: it.time ?? "recently",
+        icon: CheckCircle2,
+        tone: "text-success",
+      }))
+    : DEFAULT_ITEMS;
+
   return (
     <section className="rounded-xl border border-border/70 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
@@ -475,7 +657,7 @@ function ActivityFeed() {
           <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Recent activity</h2>
           <p className="mt-0.5 text-[12px] text-muted-foreground">Live across your workspace</p>
         </div>
-        <button className="text-[12px] font-semibold text-primary hover:underline">Open feed →</button>
+        <Link to="/tasks" className="text-[12px] font-semibold text-primary hover:underline">Open feed →</Link>
       </div>
       <ul className="divide-y divide-border/50">
         {items.map((it, i) => (
@@ -500,7 +682,7 @@ function ActivityFeed() {
 }
 
 /* =========================== AI ASSISTANT =========================== */
-function AiAssistant() {
+function AiAssistant({ firstName }: { firstName: string }) {
   const [value, setValue] = useState("");
   const suggestions = ["Plan next sprint", "Summarize standup", "Draft release notes"];
   return (
@@ -523,7 +705,7 @@ function AiAssistant() {
 
         <div className="mt-4 space-y-2">
           <div className="max-w-[90%] rounded-xl rounded-tl-md border border-border/60 bg-secondary/50 p-2.5 text-[12px] leading-relaxed text-foreground">
-            Morning Jules — <span className="font-semibold">3 tickets are blocked</span> in Payments v2 and you have 2 reviews waiting. Want me to draft standup notes?
+            Morning {firstName} — <span className="font-semibold">3 tickets are in review</span> and active projects are on track. Want me to draft standup notes?
           </div>
           <div className="ml-auto max-w-[80%] rounded-xl rounded-tr-md bg-gradient-primary p-2.5 text-[12px] text-white">
             Yes — plus a summary of this week's velocity.
@@ -557,12 +739,12 @@ function AiAssistant() {
 /* =========================== QUICK ACTIONS =========================== */
 function QuickActions() {
   const actions = [
-    { icon: Plus, label: "New project", tone: "from-primary/12 to-primary/4 text-primary" },
-    { icon: CheckSquare, label: "Add task", tone: "from-accent/15 to-accent/5 text-accent-foreground" },
-    { icon: FileText, label: "New doc", tone: "from-success/15 to-success/5 text-success" },
-    { icon: Rocket, label: "Ship release", tone: "from-warning/15 to-warning/5 text-warning" },
-    { icon: PlayCircle, label: "Start standup", tone: "from-danger/12 to-danger/4 text-danger" },
-    { icon: Inbox, label: "Triage inbox", tone: "from-secondary to-secondary text-foreground" },
+    { icon: Plus, label: "New project", href: "/projects", tone: "from-primary/12 to-primary/4 text-primary" },
+    { icon: CheckSquare, label: "Add task", href: "/tasks", tone: "from-accent/15 to-accent/5 text-accent-foreground" },
+    { icon: FileText, label: "New doc", href: "#", tone: "from-success/15 to-success/5 text-success" },
+    { icon: Rocket, label: "Ship release", href: "#", tone: "from-warning/15 to-warning/5 text-warning" },
+    { icon: PlayCircle, label: "Start standup", href: "#", tone: "from-danger/12 to-danger/4 text-danger" },
+    { icon: Inbox, label: "Triage inbox", href: "/notifications", tone: "from-secondary to-secondary text-foreground" },
   ];
   return (
     <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
@@ -574,13 +756,14 @@ function QuickActions() {
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {actions.map((a) => (
-          <button
+          <Link
             key={a.label}
+            to={a.href}
             className={`group flex flex-col items-start gap-2 rounded-lg border border-border/70 bg-gradient-to-br ${a.tone} p-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-soft`}
           >
             <a.icon className="h-4 w-4" />
             <span className="text-[11px] font-semibold text-foreground">{a.label}</span>
-          </button>
+          </Link>
         ))}
       </div>
     </section>
@@ -589,15 +772,21 @@ function QuickActions() {
 
 /* =========================== CALENDAR =========================== */
 function CalendarCard() {
-  const days = Array.from({ length: 35 }, (_, i) => i - 2); // -2..32
-  const today = 26;
-  const events: Record<number, string> = { 26: "primary", 28: "accent", 30: "warning" };
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = now.getDate();
+  const days = Array.from({ length: 35 }, (_, i) => i - firstDay + 1);
+
   return (
     <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CalendarIcon className="h-4 w-4 text-primary" />
-          <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">July 2026</h2>
+          <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">{monthLabel}</h2>
         </div>
         <div className="flex items-center gap-1">
           <button className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-secondary"><ChevronLeft className="h-3.5 w-3.5" /></button>
@@ -610,9 +799,8 @@ function CalendarCard() {
       </div>
       <div className="mt-1 grid grid-cols-7 gap-1">
         {days.map((d, i) => {
-          const valid = d >= 1 && d <= 31;
+          const valid = d >= 1 && d <= daysInMonth;
           const isToday = d === today;
-          const ev = events[d];
           return (
             <button
               key={i}
@@ -623,30 +811,9 @@ function CalendarCard() {
               }`}
             >
               {valid ? d : "0"}
-              {ev && !isToday && (
-                <span className={`absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${
-                  ev === "primary" ? "bg-primary" : ev === "accent" ? "bg-accent" : "bg-warning"
-                }`} />
-              )}
             </button>
           );
         })}
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {[
-          { t: "Design review · DS-22", time: "10:30", color: "oklch(0.55 0.22 279)" },
-          { t: "Weekly planning", time: "14:00", color: "oklch(0.72 0.16 180)" },
-        ].map((e) => (
-          <div key={e.t} className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-surface/60 px-2.5 py-2">
-            <span className="h-6 w-1 rounded-full" style={{ background: e.color }} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[11.5px] font-semibold text-foreground">{e.t}</p>
-              <p className="text-[10.5px] text-muted-foreground">Today · {e.time}</p>
-            </div>
-            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-        ))}
       </div>
     </section>
   );
@@ -684,7 +851,7 @@ function NotificationsCard() {
         ))}
       </ul>
       <div className="border-t border-border/70 px-5 py-2.5 text-center">
-        <Link to="/dashboard" className="text-[12px] font-semibold text-primary hover:underline">View all notifications</Link>
+        <Link to="/notifications" className="text-[12px] font-semibold text-primary hover:underline">View all notifications</Link>
       </div>
     </section>
   );

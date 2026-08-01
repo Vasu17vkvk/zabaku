@@ -1,12 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { useMemo, useState, useCallback } from "react";
 import { TaskDetailsDrawer, type DrawerTask } from "@/features/tasks/components/TaskDetailsDrawer";
 import {
   Plus, Search, Filter, LayoutGrid, Table as TableIcon, Calendar as CalendarIcon,
   GitBranch, ChevronDown, MoreHorizontal, MessageSquare, Paperclip, CheckSquare,
   Flag, Sparkles, ChevronLeft, ChevronRight, Circle, CheckCircle2, GripVertical,
-  Clock, ArrowUpDown, X,
+  Clock, ArrowUpDown, X, Loader2, FolderKanban,
 } from "lucide-react";
+import { useTasks, useUpdateTaskStatus, useDeleteTask } from "@/features/tasks/hooks";
+import { getPersistedProjectId } from "@/features/projects/hooks";
+import type { ApiTask, TaskStatusKey, TaskPriority } from "@/features/tasks/api";
 
 export const Route = createFileRoute("/tasks")({
   head: () => ({
@@ -19,23 +24,24 @@ export const Route = createFileRoute("/tasks")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: TasksPage,
+  beforeLoad: requireAuth,
+  component: () => <ProtectedRoute><TasksPage /></ProtectedRoute>,
 });
 
-/* ============ types & data ============ */
-type Priority = "Urgent" | "High" | "Medium" | "Low";
-type StatusKey = "todo" | "in_progress" | "review" | "done";
+/* ============ UI-facing types (unchanged contract) ============ */
+type Priority = TaskPriority;
+type StatusKey = TaskStatusKey;
 
 type Member = { initials: string; color: string };
 type Task = {
-  id: string;
+  id: string;         // MongoDB _id
   key: string;
   title: string;
   description?: string;
   status: StatusKey;
   priority: Priority;
   due: string;
-  dueDay: number; // 1..31 for July demo
+  dueDay: number;
   members: Member[];
   tags: { label: string; tone: string }[];
   checklist: { done: number; total: number };
@@ -44,128 +50,195 @@ type Task = {
   project: { key: string; name: string; color: string };
 };
 
-const M = {
-  AK: { initials: "AK", color: "oklch(0.72 0.16 180)" },
-  JL: { initials: "JL", color: "oklch(0.55 0.22 279)" },
-  MB: { initials: "MB", color: "oklch(0.75 0.16 92)" },
-  SR: { initials: "SR", color: "oklch(0.68 0.17 28)" },
-  PS: { initials: "PS", color: "oklch(0.62 0.19 30)" },
-} as const;
+/* ============ normalise helpers ============ */
 
-const TAGS = {
-  frontend: { label: "Frontend", tone: "bg-primary/12 text-primary" },
-  backend: { label: "Backend", tone: "bg-accent/15 text-accent-foreground" },
-  design: { label: "Design", tone: "bg-warning/15 text-warning" },
-  bug: { label: "Bug", tone: "bg-danger/12 text-danger" },
-  research: { label: "Research", tone: "bg-success/15 text-success" },
-  ai: { label: "AI", tone: "bg-secondary text-foreground" },
-} as const;
+const TAG_TONES: Record<string, string> = {
+  frontend: "bg-primary/12 text-primary",
+  backend: "bg-accent/15 text-accent-foreground",
+  design: "bg-warning/15 text-warning",
+  bug: "bg-danger/12 text-danger",
+  research: "bg-success/15 text-success",
+  ai: "bg-secondary text-foreground",
+};
+const DEFAULT_TAG_TONE = "bg-secondary text-foreground";
 
-const INITIAL_TASKS: Task[] = [
-  {
-    id: "1", key: "PAY-151", title: "Idempotency keys audit",
-    description: "Verify all POST endpoints accept an idempotency key and dedupe correctly.",
-    status: "in_progress", priority: "Urgent", due: "Jul 28", dueDay: 28,
-    members: [M.SR, M.AK], tags: [TAGS.backend, TAGS.bug],
-    checklist: { done: 3, total: 8 }, comments: 12, attachments: 2,
-    project: { key: "PAY", name: "Payments v2", color: "oklch(0.55 0.22 279)" },
-  },
-  {
-    id: "2", key: "PAY-149", title: "Currency picker states",
-    description: "Empty, loading, error, and no-results variants.",
-    status: "in_progress", priority: "Medium", due: "Jul 30", dueDay: 30,
-    members: [M.MB], tags: [TAGS.frontend, TAGS.design],
-    checklist: { done: 2, total: 5 }, comments: 4, attachments: 1,
-    project: { key: "PAY", name: "Payments v2", color: "oklch(0.55 0.22 279)" },
-  },
-  {
-    id: "3", key: "ONB-32", title: "Sample data for new workspaces",
-    status: "todo", priority: "High", due: "Aug 04", dueDay: 4,
-    members: [M.MB, M.JL], tags: [TAGS.backend, TAGS.research],
-    checklist: { done: 0, total: 4 }, comments: 2, attachments: 0,
-    project: { key: "ONB", name: "Onboarding", color: "oklch(0.75 0.16 92)" },
-  },
-  {
-    id: "4", key: "DS-88", title: "Motion tokens for elevation",
-    description: "Define spring curves for card lift, tooltip, and dialog.",
-    status: "review", priority: "High", due: "Jul 26", dueDay: 26,
-    members: [M.JL, M.MB], tags: [TAGS.design],
-    checklist: { done: 6, total: 6 }, comments: 21, attachments: 4,
-    project: { key: "DS", name: "Design system", color: "oklch(0.68 0.16 320)" },
-  },
-  {
-    id: "5", key: "AI-14", title: "Copilot guardrail evals",
-    status: "todo", priority: "Urgent", due: "Aug 02", dueDay: 2,
-    members: [M.PS, M.AK], tags: [TAGS.ai, TAGS.research],
-    checklist: { done: 1, total: 6 }, comments: 8, attachments: 3,
-    project: { key: "AI", name: "AI Copilot", color: "oklch(0.62 0.19 30)" },
-  },
-  {
-    id: "6", key: "MOB-19", title: "Push notification permissions",
-    status: "in_progress", priority: "High", due: "Aug 01", dueDay: 1,
-    members: [M.SR], tags: [TAGS.frontend],
-    checklist: { done: 4, total: 7 }, comments: 3, attachments: 0,
-    project: { key: "MOB", name: "Mobile beta", color: "oklch(0.72 0.16 180)" },
-  },
-  {
-    id: "7", key: "PAY-142", title: "Refund flow polish",
-    status: "done", priority: "High", due: "Jul 24", dueDay: 24,
-    members: [M.AK], tags: [TAGS.frontend, TAGS.design],
-    checklist: { done: 5, total: 5 }, comments: 18, attachments: 6,
-    project: { key: "PAY", name: "Payments v2", color: "oklch(0.55 0.22 279)" },
-  },
-  {
-    id: "8", key: "DS-91", title: "Icon set audit",
-    status: "todo", priority: "Low", due: "Aug 12", dueDay: 12,
-    members: [M.MB], tags: [TAGS.design],
-    checklist: { done: 0, total: 3 }, comments: 1, attachments: 0,
-    project: { key: "DS", name: "Design system", color: "oklch(0.68 0.16 320)" },
-  },
-  {
-    id: "9", key: "SEC-04", title: "Audit-log retention policy",
-    status: "review", priority: "Medium", due: "Jul 29", dueDay: 29,
-    members: [M.PS, M.SR], tags: [TAGS.backend, TAGS.research],
-    checklist: { done: 3, total: 4 }, comments: 7, attachments: 2,
-    project: { key: "SEC", name: "SOC 2", color: "oklch(0.55 0.14 250)" },
-  },
-  {
-    id: "10", key: "GRW-11", title: "Pricing page A/B setup",
-    status: "done", priority: "Medium", due: "Jul 18", dueDay: 18,
-    members: [M.MB, M.JL], tags: [TAGS.frontend],
-    checklist: { done: 4, total: 4 }, comments: 5, attachments: 1,
-    project: { key: "GRW", name: "Growth", color: "oklch(0.68 0.16 155)" },
-  },
+const MEMBER_COLORS = [
+  "oklch(0.72 0.16 180)",
+  "oklch(0.55 0.22 279)",
+  "oklch(0.75 0.16 92)",
+  "oklch(0.68 0.17 28)",
+  "oklch(0.62 0.19 30)",
 ];
 
+const PROJECT_COLORS = [
+  "oklch(0.55 0.22 279)",
+  "oklch(0.75 0.16 92)",
+  "oklch(0.72 0.16 180)",
+  "oklch(0.68 0.16 320)",
+  "oklch(0.62 0.19 30)",
+];
+
+function formatDue(iso?: string): string {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function dueDayOfMonth(iso?: string): number {
+  if (!iso) return 0;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? 0 : d.getDate();
+}
+
+function normaliseTag(raw: NonNullable<ApiTask["tags"]>[number]): { label: string; tone: string } {
+  if (typeof raw === "string") {
+    const key = raw.toLowerCase();
+    return { label: raw, tone: TAG_TONES[key] ?? DEFAULT_TAG_TONE };
+  }
+  const key = raw.label.toLowerCase();
+  return { label: raw.label, tone: TAG_TONES[key] ?? (raw as { color?: string }).color ?? DEFAULT_TAG_TONE };
+}
+
+function normalise(raw: ApiTask, idx: number): Task {
+  const id = raw._id ?? raw.id ?? String(idx);
+  const key = raw.key ?? `TSK-${String(idx + 1).padStart(3, "0")}`;
+  const proj = raw.project ?? {};
+  const members = (raw.members ?? raw.assignees ?? []).map((m, mi) => ({
+    initials:
+      m.initials ??
+      (m.name
+        ? m.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+        : "??"),
+    color: m.color ?? MEMBER_COLORS[mi % MEMBER_COLORS.length],
+  }));
+
+  return {
+    id,
+    key,
+    title: raw.title,
+    description: raw.description,
+    status: raw.status,
+    priority: raw.priority ?? "Medium",
+    due: formatDue(raw.dueDate),
+    dueDay: dueDayOfMonth(raw.dueDate),
+    members,
+    tags: (raw.tags ?? []).map(normaliseTag),
+    checklist: {
+      done: raw.checklistDone ?? raw.subtasksCompleted ?? 0,
+      total: raw.checklistTotal ?? raw.subtasksTotal ?? 0,
+    },
+    comments: raw.commentsCount ?? 0,
+    attachments: raw.attachmentsCount ?? 0,
+    project: {
+      key: proj.key ?? key.split("-")[0] ?? "PRJ",
+      name: proj.name ?? "Project",
+      color: proj.color ?? PROJECT_COLORS[idx % PROJECT_COLORS.length],
+    },
+  };
+}
+
+/* ============ constants ============ */
 const COLUMNS: { key: StatusKey; title: string; tone: string; dot: string }[] = [
-  { key: "todo", title: "Todo", tone: "bg-muted-foreground", dot: "bg-muted-foreground" },
-  { key: "in_progress", title: "In progress", tone: "bg-primary", dot: "bg-primary" },
-  { key: "review", title: "In review", tone: "bg-accent", dot: "bg-accent" },
-  { key: "done", title: "Done", tone: "bg-success", dot: "bg-success" },
+  { key: "todo",        title: "Todo",        tone: "bg-muted-foreground", dot: "bg-muted-foreground" },
+  { key: "in_progress", title: "In progress", tone: "bg-primary",          dot: "bg-primary" },
+  { key: "review",      title: "In review",   tone: "bg-accent",           dot: "bg-accent" },
+  { key: "done",        title: "Done",        tone: "bg-success",          dot: "bg-success" },
 ];
 
 /* ============ page ============ */
 type ViewKey = "kanban" | "table" | "calendar" | "timeline";
 
 function TasksPage() {
+  const projectId = getPersistedProjectId();
+
   const [view, setView] = useState<ViewKey>("kanban");
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
   const [query, setQuery] = useState("");
   const [openTask, setOpenTask] = useState<Task | null>(null);
 
+  // Build filters — pass search to backend; filtering by status/priority done server-side when added
+  const { data: rawTasks = [], isLoading, isError, error } = useTasks(
+    projectId,
+    query.trim() ? { search: query.trim() } : {}
+  );
+
+  const updateTaskStatus = useUpdateTaskStatus(projectId);
+  const deleteTask = useDeleteTask(projectId);
+
+  // Normalise once
+  const tasks = useMemo<Task[]>(() => rawTasks.map((t, i) => normalise(t, i)), [rawTasks]);
+
+  // Client-side search fallback (for already-cached results)
   const filtered = useMemo(() => {
     if (!query.trim()) return tasks;
     const q = query.toLowerCase();
-    return tasks.filter((t) => `${t.title} ${t.key} ${t.description ?? ""}`.toLowerCase().includes(q));
+    return tasks.filter((t) =>
+      `${t.title} ${t.key} ${t.description ?? ""}`.toLowerCase().includes(q)
+    );
   }, [tasks, query]);
+
+  // Drag-and-drop handler — optimistic update via useUpdateTaskStatus
+  const handleDrop = useCallback(
+    async (taskId: string, newStatus: StatusKey) => {
+      await updateTaskStatus.mutateAsync({ taskId, status: newStatus });
+    },
+    [updateTaskStatus]
+  );
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[oklch(0.985_0.005_265)]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-[13px] text-muted-foreground animate-pulse">Loading tasks…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No project selected ───────────────────────────────────────────────────
+  if (!projectId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[oklch(0.985_0.005_265)]">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <FolderKanban className="h-10 w-10 text-muted-foreground" />
+          <p className="text-[15px] font-semibold text-foreground">No project selected</p>
+          <p className="text-[13px] text-muted-foreground">
+            Open a project from the Projects page to view its tasks.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error ─────────────────────────────────────────────────────────────────
+  if (isError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[oklch(0.985_0.005_265)] px-6">
+        <div className="w-full max-w-md rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-center">
+          <p className="text-[14px] font-semibold text-destructive">Failed to load tasks</p>
+          <p className="mt-1 text-[12.5px] text-destructive/80">
+            {error instanceof Error ? error.message : "An unexpected error occurred."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[oklch(0.985_0.005_265)] text-foreground">
       <main className="mx-auto max-w-[1600px] px-6 py-8 lg:px-10 lg:py-10">
-        <Header />
+        <Header totalCount={tasks.length} />
         <Toolbar view={view} setView={setView} query={query} setQuery={setQuery} />
         <div className="mt-6">
-          {view === "kanban" && <KanbanBoard tasks={filtered} setTasks={setTasks} onOpen={setOpenTask} />}
+          {view === "kanban" && (
+            <KanbanBoard
+              tasks={filtered}
+              onDrop={handleDrop}
+              onOpen={setOpenTask}
+            />
+          )}
           {view === "table" && <TableView tasks={filtered} onOpen={setOpenTask} />}
           {view === "calendar" && <CalendarView tasks={filtered} />}
           {view === "timeline" && <TimelineView tasks={filtered} />}
@@ -177,7 +250,7 @@ function TasksPage() {
 }
 
 /* ============ header ============ */
-function Header() {
+function Header({ totalCount }: { totalCount: number }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 sm:flex sm:flex-wrap sm:justify-between">
       <div className="min-w-0">
@@ -188,8 +261,7 @@ function Header() {
         </div>
         <h1 className="mt-1 truncate text-[26px] font-semibold tracking-[-0.02em] sm:text-[28px]">Tasks</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          <span className="font-medium text-foreground">{INITIAL_TASKS.length} tasks</span> · 6 due this week ·
-          <span className="ml-1 text-danger">2 overdue</span>
+          <span className="font-medium text-foreground">{totalCount} tasks</span>
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -205,12 +277,19 @@ function Header() {
 }
 
 /* ============ toolbar ============ */
+const MEMBER_PALETTE = [
+  { initials: "AK", color: "oklch(0.72 0.16 180)" },
+  { initials: "JL", color: "oklch(0.55 0.22 279)" },
+  { initials: "MB", color: "oklch(0.75 0.16 92)" },
+  { initials: "SR", color: "oklch(0.68 0.17 28)" },
+];
+
 function Toolbar({
   view, setView, query, setQuery,
 }: { view: ViewKey; setView: (v: ViewKey) => void; query: string; setQuery: (v: string) => void }) {
-  const views: { key: ViewKey; label: string; icon: any }[] = [
-    { key: "kanban", label: "Kanban", icon: LayoutGrid },
-    { key: "table", label: "Table", icon: TableIcon },
+  const views: { key: ViewKey; label: string; icon: React.ElementType }[] = [
+    { key: "kanban",   label: "Kanban",   icon: LayoutGrid },
+    { key: "table",    label: "Table",    icon: TableIcon },
     { key: "calendar", label: "Calendar", icon: CalendarIcon },
     { key: "timeline", label: "Timeline", icon: GitBranch },
   ];
@@ -257,7 +336,7 @@ function Toolbar({
         <ChipBtn icon={<Flag className="h-3.5 w-3.5" />} label="Priority" caret />
         <ChipBtn icon={<ArrowUpDown className="h-3.5 w-3.5" />} label="Group: Status" caret />
         <div className="ml-1 flex -space-x-1.5">
-          {Object.values(M).slice(0, 4).map((m, i) => (
+          {MEMBER_PALETTE.map((m, i) => (
             <span key={i} className="grid h-7 w-7 place-items-center rounded-full border-2 border-white text-[9.5px] font-semibold text-white" style={{ background: m.color }}>{m.initials}</span>
           ))}
           <button className="grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-secondary text-muted-foreground hover:text-foreground">
@@ -280,7 +359,15 @@ function ChipBtn({ icon, label, caret, badge }: { icon: React.ReactNode; label: 
 }
 
 /* ============ KANBAN ============ */
-function KanbanBoard({ tasks, setTasks, onOpen }: { tasks: Task[]; setTasks: (t: Task[]) => void; onOpen: (t: Task) => void }) {
+function KanbanBoard({
+  tasks,
+  onDrop,
+  onOpen,
+}: {
+  tasks: Task[];
+  onDrop: (taskId: string, status: StatusKey) => Promise<void>;
+  onOpen: (t: Task) => void;
+}) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<StatusKey | null>(null);
 
@@ -289,10 +376,23 @@ function KanbanBoard({ tasks, setTasks, onOpen }: { tasks: Task[]; setTasks: (t:
   const onDragStart = (id: string) => setDragId(id);
   const onDragEnd = () => { setDragId(null); setDragOver(null); };
   const onDropInto = (col: StatusKey) => {
-    if (!dragId) return;
-    setTasks(tasks.map((t) => (t.id === dragId ? { ...t, status: col } : t)));
+    if (!dragId || dragId === col) return;
+    onDrop(dragId, col).catch(() => {/* rollback is handled by the mutation */});
     onDragEnd();
   };
+
+  // empty state
+  if (tasks.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="grid h-14 w-14 place-items-center rounded-2xl border border-border/70 bg-white shadow-xs">
+          <CheckSquare className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <h3 className="mt-4 text-[16px] font-semibold text-foreground">No tasks yet</h3>
+        <p className="mt-1 text-[13px] text-muted-foreground">Create your first task to get started.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="-mx-2 flex gap-4 overflow-x-auto px-2 pb-4">
@@ -333,7 +433,6 @@ function KanbanBoard({ tasks, setTasks, onOpen }: { tasks: Task[]; setTasks: (t:
                   onDragEnd={onDragEnd}
                   onOpen={() => onOpen(t)}
                 />
-
               ))}
               {/* drop indicator */}
               <div className={`grid place-items-center rounded-xl border border-dashed py-3 text-[11.5px] font-medium transition-all ${
@@ -358,7 +457,7 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen }: {
     Medium: "bg-accent/15 text-accent-foreground",
     Low: "bg-secondary text-muted-foreground",
   } as Record<Priority, string>)[task.priority];
-  const overdue = task.dueDay <= 25;
+  const overdue = task.dueDay > 0 && task.dueDay <= 25;
   const pct = task.checklist.total ? Math.round((task.checklist.done / task.checklist.total) * 100) : 0;
 
   return (
@@ -459,6 +558,18 @@ function TableView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => void
     Low: "bg-secondary text-muted-foreground",
   } as Record<Priority, string>)[p];
 
+  if (tasks.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="grid h-14 w-14 place-items-center rounded-2xl border border-border/70 bg-white shadow-xs">
+          <Search className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <h3 className="mt-4 text-[16px] font-semibold text-foreground">No tasks match your filters</h3>
+        <p className="mt-1 text-[13px] text-muted-foreground">Try adjusting your search or filters.</p>
+      </div>
+    );
+  }
+
   return (
     <section className="overflow-hidden rounded-2xl border border-border/70 bg-white shadow-xs">
       <div className="overflow-x-auto">
@@ -478,7 +589,7 @@ function TableView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => void
           <tbody>
             {tasks.map((t) => (
               <tr key={t.id} onClick={() => onOpen(t)} className="cursor-pointer border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
-                <td className="py-3 pl-5 pr-3"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border accent-[oklch(0.55_0.22_279)]" /></td>
+                <td className="py-3 pl-5 pr-3"><input type="checkbox" className="h-3.5 w-3.5 rounded border-border accent-[oklch(0.55_0.22_279)]" onClick={(e) => e.stopPropagation()} /></td>
                 <td className="py-3 px-3">
                   <div className="flex items-center gap-2.5">
                     <Circle className="h-3.5 w-3.5 text-muted-foreground" />
@@ -531,11 +642,15 @@ function TableView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => void
 
 /* ============ CALENDAR ============ */
 function CalendarView({ tasks }: { tasks: Task[] }) {
-  // July 2026 starts on Wednesday
-  const startOffset = 3;
-  const daysInMonth = 31;
+  // Derive month from current date
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells = 42;
-  const today = 26;
+  const today = now.getDate();
 
   const tasksByDay = (d: number) => tasks.filter((t) => t.dueDay === d);
 
@@ -544,7 +659,7 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
       <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
         <div className="flex items-center gap-2">
           <CalendarIcon className="h-4 w-4 text-primary" />
-          <h2 className="text-[15px] font-semibold">July 2026</h2>
+          <h2 className="text-[15px] font-semibold">{monthLabel}</h2>
           <div className="ml-2 flex items-center gap-1">
             <button className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary"><ChevronLeft className="h-3.5 w-3.5" /></button>
             <button className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary"><ChevronRight className="h-3.5 w-3.5" /></button>
@@ -566,7 +681,7 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
 
       <div className="grid grid-cols-7">
         {Array.from({ length: cells }, (_, i) => {
-          const day = i - startOffset + 1;
+          const day = i - firstDay + 1;
           const valid = day >= 1 && day <= daysInMonth;
           const isToday = day === today;
           const dayTasks = valid ? tasksByDay(day) : [];
@@ -610,15 +725,15 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
 
 /* ============ TIMELINE (Gantt) ============ */
 function TimelineView({ tasks }: { tasks: Task[] }) {
-  const days = 14; // Jul 20 → Aug 02
-  const startDay = 20;
-  const today = 26;
+  const days = 14;
+  const now = new Date();
+  const startDay = now.getDate() - 6; // center today
+  const today = now.getDate();
   const dayW = 60;
 
   const barFor = (t: Task) => {
-    // synthesize a length from checklist total (1-4 days)
     const len = Math.max(2, Math.min(6, Math.ceil(t.checklist.total / 2)));
-    const dueOffset = t.dueDay <= 31 ? t.dueDay - startDay : (31 - startDay) + t.dueDay;
+    const dueOffset = t.dueDay - startDay;
     const end = Math.max(0, Math.min(days - 1, dueOffset));
     const start = Math.max(0, end - len);
     return { start, len: end - start + 1 };
@@ -629,7 +744,7 @@ function TimelineView({ tasks }: { tasks: Task[] }) {
       <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
         <div>
           <h2 className="text-[15px] font-semibold">Timeline</h2>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">Jul 20 → Aug 02 · 2 weeks</p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">2-week view · {tasks.length} tasks</p>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-white p-0.5">
           {["Days","Weeks","Months"].map((v, i) => (
@@ -639,17 +754,17 @@ function TimelineView({ tasks }: { tasks: Task[] }) {
       </div>
 
       <div className="grid grid-cols-[220px_1fr]">
-        {/* header row */}
+        {/* header */}
         <div className="border-b border-r border-border/50 bg-secondary/30 px-4 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Task</div>
         <div className="overflow-x-auto">
           <div className="grid border-b border-border/50 bg-secondary/30" style={{ gridTemplateColumns: `repeat(${days}, ${dayW}px)`, minWidth: days * dayW }}>
             {Array.from({ length: days }, (_, i) => {
-              const d = startDay + i > 31 ? startDay + i - 31 : startDay + i;
-              const isToday = startDay + i === today;
+              const d = startDay + i;
+              const isToday = d === today;
               return (
                 <div key={i} className={`border-r border-border/50 px-2 py-2 text-center text-[10.5px] font-semibold ${isToday ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}>
-                  <div className="uppercase tracking-wider">{["M","T","W","T","F","S","S"][(i + 0) % 7]}</div>
-                  <div className="mt-0.5 text-foreground/80 tabular-nums">{d}</div>
+                  <div className="uppercase tracking-wider">{["M","T","W","T","F","S","S"][(i) % 7]}</div>
+                  <div className="mt-0.5 text-foreground/80 tabular-nums">{d > 0 ? d : d + 31}</div>
                 </div>
               );
             })}

@@ -1,4 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useState } from "react";
 import {
   ArrowLeft, Star, Share2, MoreHorizontal, Sparkles, Play, Pause,
@@ -20,7 +22,8 @@ export const Route = createFileRoute("/projects/$projectId")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: ProjectDetailsPage,
+  beforeLoad: requireAuth,
+  component: () => <ProtectedRoute><ProjectDetailsPage /></ProtectedRoute>,
 });
 
 function prettyName(id: string) {

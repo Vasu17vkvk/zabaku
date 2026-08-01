@@ -6,7 +6,7 @@ import { AppError } from "../errors/AppError";
 import { RegisterUserDto } from "../dtos/auth/RegisterUser.dto";
 
 export async function registerUser(data: RegisterUserDto) {
-    const { firstName, lastName, email, password } = data;
+    const { firstName, lastName = "", email, password } = data;
 
     // Check if email already exists
     const existingUser = await User.findOne({ email });
@@ -21,14 +21,18 @@ export async function registerUser(data: RegisterUserDto) {
     // Create user
     const user = await User.create({
         firstName,
-        lastName,
+        lastName: lastName ?? "",
         email,
         password: hashedPassword,
     });
 
+    const token = generateToken(user._id.toString());
     const safeUser = await User.findById(user._id);
 
-    return safeUser;
+    return {
+        token,
+        user: safeUser,
+    };
 }
 export async function loginUser(data: LoginUserDto) {
     const { email, password } = data;

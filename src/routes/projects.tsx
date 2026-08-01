@@ -1,11 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import {
   Plus, Search, SlidersHorizontal, ArrowUpDown, LayoutGrid, List,
   ChevronDown, MoreHorizontal, Calendar, MessageSquare, Paperclip,
   CheckCircle2, GitBranch, Sparkles, Flag, ArrowRight, X, ExternalLink,
-  Users, Clock, Star,
+  Users, Clock, Star, FolderKanban, Loader2,
 } from "lucide-react";
+import { useProjects, useDeleteProject, getPersistedProjectId, persistProjectId } from "@/features/projects/hooks";
+import { getPersistedWorkspaceId } from "@/features/workspaces/hooks";
+import type { ApiProject, ApiStatus, ApiPriority } from "@/features/projects/api";
 
 export const Route = createFileRoute("/projects")({
   head: () => ({
@@ -18,14 +23,18 @@ export const Route = createFileRoute("/projects")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: ProjectsPage,
+  beforeLoad: requireAuth,
+  component: () => <ProtectedRoute><ProjectsPage /></ProtectedRoute>,
 });
 
-/* ============ data ============ */
-type Priority = "Urgent" | "High" | "Medium" | "Low";
-type Status = "On track" | "At risk" | "Blocked" | "In review" | "Shipped";
+/* ============ UI-facing types (unchanged from original) ============ */
+type Priority = ApiPriority;
+type Status = ApiStatus;
+
+type Member = { initials: string; color: string };
 
 type Project = {
+  id: string;      // MongoDB _id
   key: string;
   name: string;
   description: string;
@@ -35,7 +44,7 @@ type Project = {
   priority: Priority;
   due: string;
   dueRelative: string;
-  members: { initials: string; color: string }[];
+  members: Member[];
   tasks: { done: number; total: number };
   comments: number;
   attachments: number;
@@ -44,116 +53,131 @@ type Project = {
   aiAssisted?: boolean;
 };
 
-const PROJECTS: Project[] = [
-  {
-    key: "PAY-14", name: "Payments v2", description: "Refunds, invoicing, and multi-currency checkout.",
-    color: "oklch(0.55 0.22 279)", progress: 78, status: "On track", priority: "High",
-    due: "Aug 12", dueRelative: "in 17 days",
-    members: [
-      { initials: "AK", color: "oklch(0.72 0.16 180)" },
-      { initials: "JL", color: "oklch(0.55 0.22 279)" },
-      { initials: "MB", color: "oklch(0.75 0.16 92)" },
-    ],
-    tasks: { done: 42, total: 54 }, comments: 28, attachments: 6, updated: "2m ago", aiAssisted: true, starred: true,
-  },
-  {
-    key: "ONB-08", name: "Onboarding revamp", description: "Guided setup, sample data, and empty-state polish.",
-    color: "oklch(0.75 0.16 92)", progress: 42, status: "At risk", priority: "Urgent",
-    due: "Jul 30", dueRelative: "in 4 days",
-    members: [
-      { initials: "MB", color: "oklch(0.75 0.16 92)" },
-      { initials: "SR", color: "oklch(0.68 0.17 28)" },
-    ],
-    tasks: { done: 11, total: 26 }, comments: 14, attachments: 3, updated: "18m ago",
-  },
-  {
-    key: "MOB-03", name: "Mobile beta", description: "iOS + Android shell with push and offline mode.",
-    color: "oklch(0.72 0.16 180)", progress: 61, status: "On track", priority: "Medium",
-    due: "Sep 04", dueRelative: "in 40 days",
-    members: [
-      { initials: "SR", color: "oklch(0.68 0.17 28)" },
-      { initials: "AK", color: "oklch(0.72 0.16 180)" },
-      { initials: "PS", color: "oklch(0.62 0.19 30)" },
-      { initials: "JL", color: "oklch(0.55 0.22 279)" },
-    ],
-    tasks: { done: 18, total: 30 }, comments: 9, attachments: 12, updated: "1h ago",
-  },
-  {
-    key: "DS-22", name: "Design system 3.0", description: "Motion tokens, elevation, and adaptive theming.",
-    color: "oklch(0.68 0.16 320)", progress: 92, status: "In review", priority: "High",
-    due: "Jul 28", dueRelative: "in 2 days",
-    members: [
-      { initials: "JL", color: "oklch(0.55 0.22 279)" },
-      { initials: "MB", color: "oklch(0.75 0.16 92)" },
-    ],
-    tasks: { done: 46, total: 50 }, comments: 32, attachments: 21, updated: "34m ago", starred: true,
-  },
-  {
-    key: "AI-01", name: "AI Copilot rollout", description: "Workspace context, guardrails, and evals.",
-    color: "oklch(0.62 0.19 30)", progress: 28, status: "Blocked", priority: "Urgent",
-    due: "Aug 20", dueRelative: "in 25 days",
-    members: [
-      { initials: "PS", color: "oklch(0.62 0.19 30)" },
-      { initials: "AK", color: "oklch(0.72 0.16 180)" },
-    ],
-    tasks: { done: 8, total: 29 }, comments: 41, attachments: 4, updated: "3h ago", aiAssisted: true,
-  },
-  {
-    key: "GRW-05", name: "Growth experiments", description: "Landing tests, pricing page A/Bs, referrals.",
-    color: "oklch(0.68 0.16 155)", progress: 100, status: "Shipped", priority: "Medium",
-    due: "Jul 18", dueRelative: "shipped",
-    members: [
-      { initials: "MB", color: "oklch(0.75 0.16 92)" },
-      { initials: "JL", color: "oklch(0.55 0.22 279)" },
-    ],
-    tasks: { done: 22, total: 22 }, comments: 17, attachments: 8, updated: "yesterday",
-  },
-  {
-    key: "SEC-11", name: "SOC 2 readiness", description: "Policies, audit logs, and vendor reviews.",
-    color: "oklch(0.55 0.14 250)", progress: 55, status: "On track", priority: "High",
-    due: "Oct 01", dueRelative: "in 67 days",
-    members: [
-      { initials: "PS", color: "oklch(0.62 0.19 30)" },
-      { initials: "SR", color: "oklch(0.68 0.17 28)" },
-      { initials: "JL", color: "oklch(0.55 0.22 279)" },
-    ],
-    tasks: { done: 24, total: 44 }, comments: 12, attachments: 33, updated: "5h ago",
-  },
-  {
-    key: "ANL-06", name: "Analytics 2.0", description: "Cohorts, funnels, and self-serve dashboards.",
-    color: "oklch(0.68 0.16 210)", progress: 34, status: "At risk", priority: "Low",
-    due: "Sep 18", dueRelative: "in 54 days",
-    members: [
-      { initials: "AK", color: "oklch(0.72 0.16 180)" },
-      { initials: "MB", color: "oklch(0.75 0.16 92)" },
-    ],
-    tasks: { done: 9, total: 27 }, comments: 6, attachments: 2, updated: "2d ago",
-  },
-  {
-    key: "DOC-04", name: "Docs & help center", description: "Rewritten guides plus AI search.",
-    color: "oklch(0.7 0.14 60)", progress: 68, status: "On track", priority: "Medium",
-    due: "Aug 06", dueRelative: "in 11 days",
-    members: [
-      { initials: "JL", color: "oklch(0.55 0.22 279)" },
-      { initials: "PS", color: "oklch(0.62 0.19 30)" },
-    ],
-    tasks: { done: 31, total: 46 }, comments: 19, attachments: 15, updated: "6h ago", aiAssisted: true,
-  },
+/* ============ normalise backend → UI Project ============ */
+
+const MEMBER_COLORS = [
+  "oklch(0.55 0.22 279)",
+  "oklch(0.72 0.16 180)",
+  "oklch(0.75 0.16 92)",
+  "oklch(0.68 0.17 28)",
+  "oklch(0.62 0.19 30)",
 ];
 
+const PROJECT_COLORS = [
+  "oklch(0.55 0.22 279)",
+  "oklch(0.75 0.16 92)",
+  "oklch(0.72 0.16 180)",
+  "oklch(0.68 0.16 320)",
+  "oklch(0.62 0.19 30)",
+  "oklch(0.68 0.16 155)",
+  "oklch(0.55 0.14 250)",
+  "oklch(0.68 0.16 210)",
+  "oklch(0.7 0.14 60)",
+];
+
+function relativeDate(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const diff = Math.round((d.getTime() - Date.now()) / 86_400_000);
+  if (diff < -1) return `${Math.abs(diff)}d ago`;
+  if (diff === -1) return "yesterday";
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  return `in ${diff} days`;
+}
+
+function formatDue(iso?: string): string {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function updatedAgo(iso?: string): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function normalise(raw: ApiProject, idx: number): Project {
+  const id = raw._id ?? raw.id ?? String(idx);
+  const key = raw.key ?? `PRJ-${String(idx + 1).padStart(2, "0")}`;
+  return {
+    id,
+    key,
+    name: raw.name,
+    description: raw.description ?? "",
+    color: raw.color ?? PROJECT_COLORS[idx % PROJECT_COLORS.length],
+    progress: raw.progress ?? 0,
+    status: raw.status ?? "On track",
+    priority: raw.priority ?? "Medium",
+    due: formatDue(raw.dueDate),
+    dueRelative: relativeDate(raw.dueDate),
+    members: (raw.members ?? []).map((m, mi) => ({
+      initials: m.initials ?? (m.name ? m.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "??"),
+      color: m.color ?? MEMBER_COLORS[mi % MEMBER_COLORS.length],
+    })),
+    tasks: { done: raw.tasksDone ?? 0, total: raw.tasksTotal ?? 0 },
+    comments: raw.commentsCount ?? 0,
+    attachments: raw.attachmentsCount ?? 0,
+    updated: updatedAgo(raw.updatedAt),
+    starred: raw.starred,
+    aiAssisted: raw.aiAssisted,
+  };
+}
+
+/* ============ constants ============ */
 const STATUSES: Status[] = ["On track", "At risk", "Blocked", "In review", "Shipped"];
 
 /* ============ page ============ */
 function ProjectsPage() {
+  const workspaceId = getPersistedWorkspaceId();
+
+  const { data: rawProjects = [], isLoading, isError, error } = useProjects(workspaceId);
+  const deleteProject = useDeleteProject(workspaceId);
+
+  // Normalise once
+  const projects = useMemo<Project[]>(
+    () => rawProjects.map((p, i) => normalise(p, i)),
+    [rawProjects]
+  );
+
   const [view, setView] = useState<"grid" | "list">("grid");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<Status | "All">("All");
   const [sort, setSort] = useState<"Recent" | "Due date" | "Progress" | "Priority">("Recent");
-  const [active, setActive] = useState<Project | null>(null);
+
+  // Active project (drawer) — restore from localStorage
+  const [activeId, setActiveId] = useState<string | null>(getPersistedProjectId);
+  const active = projects.find((p) => p.id === activeId) ?? null;
+
+  // Clear stale persisted project once data loads
+  useEffect(() => {
+    if (!isLoading && activeId && !projects.find((p) => p.id === activeId)) {
+      setActiveId(null);
+      persistProjectId(null);
+    }
+  }, [isLoading, projects, activeId]);
+
+  const openProject = useCallback((p: Project) => {
+    setActiveId(p.id);
+    persistProjectId(p.id);
+  }, []);
+
+  const closeProject = useCallback(() => {
+    setActiveId(null);
+    persistProjectId(null);
+  }, []);
 
   const filtered = useMemo(() => {
-    const priorityWeight = { Urgent: 0, High: 1, Medium: 2, Low: 3 } as const;
-    const out = PROJECTS.filter((p) => {
+    const priorityWeight: Record<Priority, number> = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
+    const out = projects.filter((p) => {
       if (status !== "All" && p.status !== status) return false;
       if (query && !`${p.name} ${p.key} ${p.description}`.toLowerCase().includes(query.toLowerCase())) return false;
       return true;
@@ -165,7 +189,53 @@ function ProjectsPage() {
       return 0;
     });
     return out;
-  }, [query, status, sort]);
+  }, [projects, query, status, sort]);
+
+  function countByStatus(): Record<Status | "All", number> {
+    const out: Record<string, number> = { All: projects.length };
+    for (const s of STATUSES) out[s] = 0;
+    for (const p of projects) out[p.status]++;
+    return out as Record<Status | "All", number>;
+  }
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[oklch(0.985_0.005_265)]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-[13px] text-muted-foreground animate-pulse">Loading projects…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No workspace ─────────────────────────────────────────────────────────
+  if (!workspaceId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[oklch(0.985_0.005_265)]">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <FolderKanban className="h-10 w-10 text-muted-foreground" />
+          <p className="text-[15px] font-semibold text-foreground">No workspace selected</p>
+          <p className="text-[13px] text-muted-foreground">Go to Settings → Workspace to create or select one.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error ─────────────────────────────────────────────────────────────────
+  if (isError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[oklch(0.985_0.005_265)] px-6">
+        <div className="w-full max-w-md rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-center">
+          <p className="text-[14px] font-semibold text-destructive">Failed to load projects</p>
+          <p className="mt-1 text-[12.5px] text-destructive/80">
+            {error instanceof Error ? error.message : "An unexpected error occurred."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[oklch(0.985_0.005_265)] text-foreground">
@@ -174,41 +244,58 @@ function ProjectsPage() {
           query={query} setQuery={setQuery}
           view={view} setView={setView}
           sort={sort} setSort={setSort}
+          totalCount={projects.length}
+          onTrackCount={projects.filter((p) => p.status === "On track" || p.status === "Shipped").length}
+          atRiskCount={projects.filter((p) => p.status === "At risk" || p.status === "Blocked").length}
         />
         <StatusChips status={status} setStatus={setStatus} counts={countByStatus()} />
 
-        {filtered.length === 0 ? (
+        {projects.length === 0 ? (
+          <NoProjectsState />
+        ) : filtered.length === 0 ? (
           <EmptyState onClear={() => { setQuery(""); setStatus("All"); }} />
         ) : view === "grid" ? (
           <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {filtered.map((p) => (
-              <ProjectCard key={p.key} project={p} onOpen={() => setActive(p)} />
+              <ProjectCard
+                key={p.id}
+                project={p}
+                onOpen={() => openProject(p)}
+                onDelete={deleteProject.isPending ? undefined : async () => {
+                  if (!window.confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
+                  await deleteProject.mutateAsync(p.id);
+                  if (activeId === p.id) closeProject();
+                }}
+              />
             ))}
           </div>
         ) : (
-          <ProjectsList projects={filtered} onOpen={setActive} />
+          <ProjectsList
+            projects={filtered}
+            onOpen={openProject}
+            onDelete={async (p) => {
+              if (!window.confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
+              await deleteProject.mutateAsync(p.id);
+              if (activeId === p.id) closeProject();
+            }}
+          />
         )}
       </main>
 
-      {active && <ProjectDrawer project={active} onClose={() => setActive(null)} />}
+      {active && <ProjectDrawer project={active} onClose={closeProject} />}
     </div>
   );
-}
-
-function countByStatus(): Record<Status | "All", number> {
-  const out: Record<string, number> = { All: PROJECTS.length };
-  for (const s of STATUSES) out[s] = 0;
-  for (const p of PROJECTS) out[p.status]++;
-  return out as Record<Status | "All", number>;
 }
 
 /* ============ header ============ */
 function Header({
   query, setQuery, view, setView, sort, setSort,
+  totalCount, onTrackCount, atRiskCount,
 }: {
   query: string; setQuery: (v: string) => void;
   view: "grid" | "list"; setView: (v: "grid" | "list") => void;
-  sort: "Recent" | "Due date" | "Progress" | "Priority"; setSort: (v: any) => void;
+  sort: "Recent" | "Due date" | "Progress" | "Priority"; setSort: (v: "Recent" | "Due date" | "Progress" | "Priority") => void;
+  totalCount: number; onTrackCount: number; atRiskCount: number;
 }) {
   return (
     <div>
@@ -221,9 +308,9 @@ function Header({
           </div>
           <h1 className="mt-1 truncate text-[26px] font-semibold tracking-[-0.02em] sm:text-[28px]">Projects</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            <span className="font-medium text-foreground">{PROJECTS.length}</span> total ·
-            <span className="ml-1 text-success">{PROJECTS.filter(p => p.status === "On track" || p.status === "Shipped").length} on track</span> ·
-            <span className="ml-1 text-warning">{PROJECTS.filter(p => p.status === "At risk" || p.status === "Blocked").length} need attention</span>
+            <span className="font-medium text-foreground">{totalCount}</span> total ·
+            <span className="ml-1 text-success">{onTrackCount} on track</span> ·
+            <span className="ml-1 text-warning">{atRiskCount} need attention</span>
           </p>
         </div>
         <button className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-primary px-3.5 text-[13px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.99]">
@@ -285,7 +372,7 @@ function ToolbarBtn({ icon, label, caret, badge }: { icon: React.ReactNode; labe
   );
 }
 
-function ToolbarSort({ sort, setSort }: { sort: string; setSort: (v: any) => void }) {
+function ToolbarSort({ sort, setSort }: { sort: string; setSort: (v: "Recent" | "Due date" | "Progress" | "Priority") => void }) {
   const [open, setOpen] = useState(false);
   const options = ["Recent", "Due date", "Progress", "Priority"] as const;
   return (
@@ -324,21 +411,21 @@ function StatusChips({ status, setStatus, counts }: {
   return (
     <div className="mt-4 flex flex-wrap items-center gap-1.5">
       {items.map((s) => {
-        const active = s === status;
+        const isActive = s === status;
         const dot = statusDotColor(s);
         return (
           <button
             key={s}
             onClick={() => setStatus(s)}
             className={`flex h-8 items-center gap-2 rounded-full border px-3 text-[12px] font-semibold transition-all ${
-              active
+              isActive
                 ? "border-foreground/80 bg-foreground text-background shadow-xs"
                 : "border-border/70 bg-white text-foreground hover:bg-secondary"
             }`}
           >
             {s !== "All" && <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />}
             {s}
-            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${active ? "bg-background/15 text-background" : "bg-secondary text-muted-foreground"}`}>
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isActive ? "bg-background/15 text-background" : "bg-secondary text-muted-foreground"}`}>
               {counts[s]}
             </span>
           </button>
@@ -349,37 +436,43 @@ function StatusChips({ status, setStatus, counts }: {
 }
 
 function statusDotColor(s: Status | "All") {
-  return {
+  return ({
     "All": "bg-muted-foreground",
     "On track": "bg-success",
     "At risk": "bg-warning",
     "Blocked": "bg-danger",
     "In review": "bg-accent",
     "Shipped": "bg-primary",
-  }[s];
+  } as Record<string, string>)[s] ?? "bg-muted-foreground";
 }
 
 function statusPillClass(s: Status) {
-  return {
+  return ({
     "On track": "bg-success/12 text-success",
     "At risk": "bg-warning/15 text-warning",
     "Blocked": "bg-danger/12 text-danger",
     "In review": "bg-accent/15 text-accent-foreground",
     "Shipped": "bg-primary/12 text-primary",
-  }[s];
+  } as Record<string, string>)[s] ?? "bg-secondary text-foreground";
 }
 
 function priorityPillClass(p: Priority) {
-  return {
+  return ({
     "Urgent": "bg-danger/12 text-danger",
     "High": "bg-warning/15 text-warning",
     "Medium": "bg-accent/15 text-accent-foreground",
     "Low": "bg-secondary text-muted-foreground",
-  }[p];
+  } as Record<string, string>)[p] ?? "bg-secondary text-foreground";
 }
 
 /* ============ card ============ */
-function ProjectCard({ project: p, onOpen }: { project: Project; onOpen: () => void }) {
+function ProjectCard({
+  project: p, onOpen, onDelete,
+}: {
+  project: Project;
+  onOpen: () => void;
+  onDelete?: () => void;
+}) {
   return (
     <button
       onClick={onOpen}
@@ -413,7 +506,7 @@ function ProjectCard({ project: p, onOpen }: { project: Project; onOpen: () => v
           </div>
         </div>
         <button
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
           className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100"
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
@@ -446,10 +539,7 @@ function ProjectCard({ project: p, onOpen }: { project: Project; onOpen: () => v
         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
           <div
             className="h-full rounded-full transition-[width] duration-500"
-            style={{
-              width: `${p.progress}%`,
-              background: `linear-gradient(90deg, ${p.color}, oklch(0.78 0.14 210))`,
-            }}
+            style={{ width: `${p.progress}%`, background: `linear-gradient(90deg, ${p.color}, oklch(0.78 0.14 210))` }}
           />
         </div>
       </div>
@@ -478,7 +568,7 @@ function ProjectCard({ project: p, onOpen }: { project: Project; onOpen: () => v
         </div>
         <div className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
           p.status === "Shipped" ? "bg-success/12 text-success" :
-          p.dueRelative.includes("in 2") || p.dueRelative.includes("in 4") ? "bg-danger/12 text-danger" :
+          p.dueRelative.startsWith("in 2") || p.dueRelative.startsWith("in 4") ? "bg-danger/12 text-danger" :
           "bg-secondary text-foreground"
         }`}>
           <Calendar className="h-3 w-3" />
@@ -495,7 +585,13 @@ function ProjectCard({ project: p, onOpen }: { project: Project; onOpen: () => v
 }
 
 /* ============ list view ============ */
-function ProjectsList({ projects, onOpen }: { projects: Project[]; onOpen: (p: Project) => void }) {
+function ProjectsList({
+  projects, onOpen, onDelete,
+}: {
+  projects: Project[];
+  onOpen: (p: Project) => void;
+  onDelete: (p: Project) => void;
+}) {
   return (
     <section className="mt-6 overflow-hidden rounded-2xl border border-border/70 bg-white shadow-xs">
       <div className="overflow-x-auto">
@@ -512,7 +608,7 @@ function ProjectsList({ projects, onOpen }: { projects: Project[]; onOpen: (p: P
           </thead>
           <tbody>
             {projects.map((p) => (
-              <tr key={p.key} onClick={() => onOpen(p)} className="cursor-pointer border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
+              <tr key={p.id} onClick={() => onOpen(p)} className="cursor-pointer border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
                 <td className="py-3 pl-5 pr-3">
                   <div className="flex items-center gap-2.5">
                     <span className="grid h-7 w-7 place-items-center rounded-md text-[10px] font-bold text-white" style={{ background: p.color }}>{p.key.split("-")[0].slice(0, 2)}</span>
@@ -565,7 +661,22 @@ function ProjectsList({ projects, onOpen }: { projects: Project[]; onOpen: (p: P
   );
 }
 
-/* ============ empty state ============ */
+/* ============ empty states ============ */
+function NoProjectsState() {
+  return (
+    <div className="mt-16 flex flex-col items-center justify-center text-center">
+      <div className="grid h-14 w-14 place-items-center rounded-2xl border border-border/70 bg-white shadow-xs">
+        <FolderKanban className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <h3 className="mt-4 text-[16px] font-semibold text-foreground">No projects yet</h3>
+      <p className="mt-1 text-[13px] text-muted-foreground">Create your first project to get started.</p>
+      <button className="mt-4 flex items-center gap-1.5 rounded-xl bg-gradient-primary px-4 py-2 text-[13px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02]">
+        <Plus className="h-4 w-4" /> Create project
+      </button>
+    </div>
+  );
+}
+
 function EmptyState({ onClear }: { onClear: () => void }) {
   return (
     <div className="mt-16 flex flex-col items-center justify-center text-center">

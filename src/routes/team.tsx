@@ -25,7 +25,22 @@ import {
   Copy,
   Link2,
   ArrowUpRight,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+  Trash2,
 } from "lucide-react";
+
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { useWorkspaces, getPersistedWorkspaceId } from "@/features/workspaces/hooks";
+import {
+  useMembers,
+  useInviteMember,
+  useUpdateMemberRole,
+  useRemoveMember,
+} from "@/features/team/hooks";
+import type { ApiTeamMember } from "@/features/team/api";
 
 export const Route = createFileRoute("/team")({
   head: () => ({
@@ -45,7 +60,12 @@ export const Route = createFileRoute("/team")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: TeamPage,
+  beforeLoad: requireAuth,
+  component: () => (
+    <ProtectedRoute>
+      <TeamPage />
+    </ProtectedRoute>
+  ),
 });
 
 /* ------------------------------- data ------------------------------- */
@@ -69,7 +89,7 @@ type Member = {
   lastActive: string;
 };
 
-const MEMBERS: Member[] = [
+const DEFAULT_MEMBERS: Member[] = [
   {
     id: "u1",
     name: "Elena Rodríguez",
@@ -129,81 +149,6 @@ const MEMBERS: Member[] = [
     tasks: 41,
     joined: "Apr 2024",
     lastActive: "Just now",
-  },
-  {
-    id: "u5",
-    name: "Ana Costa",
-    handle: "ana",
-    email: "ana@zabaku.io",
-    role: "Member",
-    team: "Product",
-    title: "Product Manager",
-    status: "online",
-    hue: 25,
-    projects: 8,
-    tasks: 29,
-    joined: "May 2024",
-    lastActive: "5 min ago",
-  },
-  {
-    id: "u6",
-    name: "Owen Bright",
-    handle: "owen",
-    email: "owen@zabaku.io",
-    role: "Member",
-    team: "Engineering",
-    title: "Senior Engineer",
-    status: "offline",
-    hue: 190,
-    projects: 5,
-    tasks: 36,
-    joined: "Jun 2024",
-    lastActive: "3 h ago",
-  },
-  {
-    id: "u7",
-    name: "Sofia Lindqvist",
-    handle: "sofia",
-    email: "sofia@zabaku.io",
-    role: "Member",
-    team: "Design",
-    title: "Product Designer",
-    status: "away",
-    hue: 290,
-    projects: 4,
-    tasks: 22,
-    joined: "Jul 2024",
-    lastActive: "42 min ago",
-  },
-  {
-    id: "u8",
-    name: "Daniel Okafor",
-    handle: "daniel",
-    email: "daniel@zabaku.io",
-    role: "Member",
-    team: "Growth",
-    title: "Growth Engineer",
-    status: "online",
-    hue: 45,
-    projects: 6,
-    tasks: 31,
-    joined: "Aug 2024",
-    lastActive: "1 min ago",
-  },
-  {
-    id: "u9",
-    name: "Hana Suzuki",
-    handle: "hana",
-    email: "hana@zabaku.io",
-    role: "Guest",
-    team: "External",
-    title: "Contractor · Brand",
-    status: "offline",
-    hue: 340,
-    projects: 2,
-    tasks: 8,
-    joined: "Feb 2026",
-    lastActive: "Yesterday",
   },
 ];
 
@@ -364,29 +309,47 @@ const ACTIVITY: Activity[] = [
     icon: CheckCircle2,
     tint: "text-amber-700 bg-amber-50",
   },
-  {
-    id: "a5",
-    user: "Kai Nakamura",
-    hue: 150,
-    action: "generated",
-    target: "Postgres schema · multi-tenant",
-    time: "5 h ago",
-    icon: Sparkles,
-    tint: "text-orange-600 bg-orange-50",
-  },
-  {
-    id: "a6",
-    user: "Sofia Lindqvist",
-    hue: 290,
-    action: "shipped",
-    target: "Dashboard redesign v2",
-    time: "Yesterday",
-    icon: FileText,
-    tint: "text-amber-700 bg-amber-50",
-  },
 ];
 
 /* ------------------------------ helpers ----------------------------- */
+
+function deriveHue(name?: string): number {
+  if (!name) return 210;
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 360);
+}
+
+function normaliseMember(raw: ApiTeamMember, idx: number): Member {
+  const id = raw._id ?? raw.id ?? `u-${idx + 1}`;
+  const u = typeof raw.userId === "object" ? raw.userId : raw.user ?? {};
+  const name = raw.name ?? u.name ?? "Team Member";
+  const handle = raw.handle ?? u.handle ?? name.toLowerCase().replace(/\s+/g, "");
+  const email = raw.email ?? u.email ?? `${handle}@zabaku.io`;
+  const role = (raw.role ?? "Member") as Role;
+  const team = raw.team ?? u.team ?? "Engineering";
+  const title = raw.title ?? u.title ?? "Software Engineer";
+  const status = (raw.status ?? "online") as Status;
+  const hue = raw.hue ?? u.hue ?? deriveHue(name);
+
+  return {
+    id,
+    name,
+    handle,
+    email,
+    role: ROLE_STYLES[role] ? role : "Member",
+    team,
+    title,
+    status: STATUS[status] ? status : "online",
+    hue,
+    projects: raw.projects ?? 5,
+    tasks: raw.tasks ?? 24,
+    joined: raw.joined ?? "Jan 2024",
+    lastActive: raw.lastActive ?? "Just now",
+  };
+}
 
 function initials(name: string) {
   return name
@@ -431,36 +394,8 @@ function Avatar({
   );
 }
 
-function AvatarStack({
-  people,
-  max = 4,
-  size = 26,
-}: {
-  people: { name: string; hue: number }[];
-  max?: number;
-  size?: number;
-}) {
-  const shown = people.slice(0, max);
-  const extra = Math.max(0, people.length - max);
-  return (
-    <div className="flex -space-x-2">
-      {shown.map((p) => (
-        <Avatar key={p.name} name={p.name} hue={p.hue} size={size} ring />
-      ))}
-      {extra > 0 ? (
-        <span
-          className="inline-flex items-center justify-center rounded-full bg-surface-muted text-[10px] font-semibold text-muted-foreground ring-2 ring-background"
-          style={{ width: size, height: size }}
-        >
-          +{extra}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 function RoleBadge({ role }: { role: Role }) {
-  const s = ROLE_STYLES[role];
+  const s = ROLE_STYLES[role] ?? ROLE_STYLES.Member;
   const Icon = s.icon;
   return (
     <span
@@ -477,14 +412,29 @@ function RoleBadge({ role }: { role: Role }) {
 type Tab = "members" | "invites" | "permissions";
 
 function TeamPage() {
+  const { data: workspaces = [] } = useWorkspaces();
+  const activeWorkspaceId = getPersistedWorkspaceId();
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  const { data: rawMembers = [], isLoading, isError, error, refetch } = useMembers(workspaceId);
+  const updateRoleMutation = useUpdateMemberRole(workspaceId);
+  const removeMemberMutation = useRemoveMember(workspaceId);
+
   const [tab, setTab] = useState<Tab>("members");
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<Role | "All">("All");
   const [inviteOpen, setInviteOpen] = useState(false);
 
+  const members = useMemo<Member[]>(() => {
+    return rawMembers.length > 0
+      ? rawMembers.map((m, i) => normaliseMember(m, i))
+      : DEFAULT_MEMBERS;
+  }, [rawMembers]);
+
   const filtered = useMemo(
     () =>
-      MEMBERS.filter((m) => {
+      members.filter((m) => {
         const q = query.trim().toLowerCase();
         const passQ =
           !q ||
@@ -494,19 +444,29 @@ function TeamPage() {
         const passR = roleFilter === "All" || m.role === roleFilter;
         return passQ && passR;
       }),
-    [query, roleFilter],
+    [members, query, roleFilter],
   );
 
   const stats = [
-    { label: "Members", value: MEMBERS.length, delta: "+3 this month" },
+    { label: "Members", value: members.length, delta: "+3 this month" },
     {
       label: "Active now",
-      value: MEMBERS.filter((m) => m.status === "online").length,
-      delta: "5 online",
+      value: members.filter((m) => m.status === "online").length,
+      delta: `${members.filter((m) => m.status === "online").length} online`,
     },
     { label: "Pending invites", value: PENDING.length, delta: "2 accepted" },
     { label: "Seats remaining", value: 12, delta: "of 25" },
   ];
+
+  function handleUpdateRole(memberId: string, role: Role) {
+    updateRoleMutation.mutate({ memberId, role });
+  }
+
+  function handleRemoveMember(memberId: string) {
+    if (window.confirm("Are you sure you want to remove this member from the workspace?")) {
+      removeMemberMutation.mutate(memberId);
+    }
+  }
 
   return (
     <div className="relative min-h-screen bg-background text-foreground">
@@ -523,7 +483,7 @@ function TeamPage() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>Workspace</span>
               <span>·</span>
-              <span className="text-foreground/70">Northwind</span>
+              <span className="text-foreground/70">{activeWorkspace?.name ?? "Northwind"}</span>
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
               Team
@@ -536,12 +496,14 @@ function TeamPage() {
 
           <div className="flex items-center gap-2">
             <div className="hidden items-center -space-x-2 rounded-full border border-border/70 bg-surface/70 px-2 py-1.5 backdrop-blur sm:flex">
-              {MEMBERS.slice(0, 5).map((m) => (
+              {members.slice(0, 5).map((m) => (
                 <Avatar key={m.id} name={m.name} hue={m.hue} size={24} ring />
               ))}
-              <span className="!ml-3 pr-1 text-xs font-medium text-muted-foreground">
-                +{MEMBERS.length - 5}
-              </span>
+              {members.length > 5 && (
+                <span className="!ml-3 pr-1 text-xs font-medium text-muted-foreground">
+                  +{members.length - 5}
+                </span>
+              )}
             </div>
             <button className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-surface px-3 py-2 text-sm font-medium text-foreground/80 transition hover:border-primary/40">
               <Link2 className="h-4 w-4" />
@@ -556,6 +518,22 @@ function TeamPage() {
             </button>
           </div>
         </header>
+
+        {/* Error banner */}
+        {isError && (
+          <div className="mt-6 flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error instanceof Error ? error.message : "Failed to load workspace members."}</span>
+            </div>
+            <button
+              onClick={() => refetch()}
+              className="flex items-center gap-1 rounded-md bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+            >
+              <RefreshCw className="h-3 w-3" /> Retry
+            </button>
+          </div>
+        )}
 
         {/* stats */}
         <section className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -581,7 +559,7 @@ function TeamPage() {
               <div className="inline-flex rounded-xl border border-border/70 bg-surface p-1">
                 {(
                   [
-                    { id: "members", label: `Members · ${MEMBERS.length}` },
+                    { id: "members", label: `Members · ${members.length}` },
                     { id: "invites", label: `Pending · ${PENDING.length}` },
                     { id: "permissions", label: "Permissions" },
                   ] as { id: Tab; label: string }[]
@@ -632,7 +610,15 @@ function TeamPage() {
 
             {/* tab content */}
             <div className="mt-5">
-              {tab === "members" ? <MemberGrid members={filtered} /> : null}
+              {isLoading ? (
+                <MemberGridSkeleton />
+              ) : tab === "members" ? (
+                <MemberGrid
+                  members={filtered}
+                  onUpdateRole={handleUpdateRole}
+                  onRemoveMember={handleRemoveMember}
+                />
+              ) : null}
               {tab === "invites" ? <PendingInvites /> : null}
               {tab === "permissions" ? <PermissionsMatrix /> : null}
             </div>
@@ -643,14 +629,43 @@ function TeamPage() {
         </div>
       </div>
 
-      {inviteOpen ? <InviteModal onClose={() => setInviteOpen(false)} /> : null}
+      {inviteOpen ? (
+        <InviteModal
+          workspaceId={workspaceId}
+          onClose={() => setInviteOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------------------------- member grid skeleton ------------------ */
+
+function MemberGridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="h-72 rounded-2xl border border-border/70 bg-surface p-5 animate-pulse">
+          <div className="h-12 w-12 rounded-full bg-secondary/80" />
+          <div className="mt-4 h-4 w-1/2 rounded bg-secondary/80" />
+          <div className="mt-2 h-3 w-1/3 rounded bg-secondary/60" />
+        </div>
+      ))}
     </div>
   );
 }
 
 /* ---------------------------- member grid --------------------------- */
 
-function MemberGrid({ members }: { members: Member[] }) {
+function MemberGrid({
+  members,
+  onUpdateRole,
+  onRemoveMember,
+}: {
+  members: Member[];
+  onUpdateRole: (id: string, role: Role) => void;
+  onRemoveMember: (id: string) => void;
+}) {
   if (members.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border/70 bg-surface/40 p-12 text-center">
@@ -667,14 +682,29 @@ function MemberGrid({ members }: { members: Member[] }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {members.map((m) => (
-        <MemberCard key={m.id} m={m} />
+        <MemberCard
+          key={m.id}
+          m={m}
+          onUpdateRole={onUpdateRole}
+          onRemoveMember={onRemoveMember}
+        />
       ))}
     </div>
   );
 }
 
-function MemberCard({ m }: { m: Member }) {
-  const s = STATUS[m.status];
+function MemberCard({
+  m,
+  onUpdateRole,
+  onRemoveMember,
+}: {
+  m: Member;
+  onUpdateRole: (id: string, role: Role) => void;
+  onRemoveMember: (id: string) => void;
+}) {
+  const s = STATUS[m.status] ?? STATUS.online;
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <article className="group relative overflow-hidden rounded-2xl border border-border/70 bg-surface shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10">
       <div
@@ -688,9 +718,48 @@ function MemberCard({ m }: { m: Member }) {
       <div className="px-5 pb-5">
         <div className="-mt-8 flex items-end justify-between">
           <Avatar name={m.name} hue={m.hue} size={64} status={m.status} ring />
-          <button className="rounded-lg p-1.5 text-muted-foreground opacity-0 transition hover:bg-surface-muted hover:text-foreground group-hover:opacity-100">
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="rounded-lg p-1.5 text-muted-foreground opacity-0 transition hover:bg-surface-muted hover:text-foreground group-hover:opacity-100"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-8 z-20 w-44 rounded-xl border border-border/70 bg-surface p-1 shadow-lg backdrop-blur">
+                <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Change role
+                </div>
+                {(["Owner", "Admin", "Member", "Guest"] as Role[]).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => {
+                      onUpdateRole(m.id, r);
+                      setMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                      m.role === r ? "bg-primary/10 text-primary font-semibold" : "text-foreground hover:bg-surface-muted"
+                    }`}
+                  >
+                    {r}
+                    {m.role === r && <Check className="h-3 w-3" />}
+                  </button>
+                ))}
+                <div className="my-1 border-t border-border/60" />
+                <button
+                  onClick={() => {
+                    onRemoveMember(m.id);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Remove member
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="mt-3">
@@ -919,11 +988,34 @@ function ActivityRail() {
 
 /* ---------------------------- invite modal -------------------------- */
 
-function InviteModal({ onClose }: { onClose: () => void }) {
+function InviteModal({
+  workspaceId,
+  onClose,
+}: {
+  workspaceId: string | null;
+  onClose: () => void;
+}) {
+  const inviteMutation = useInviteMember(workspaceId);
   const [emails, setEmails] = useState("");
   const [role, setRole] = useState<Role>("Member");
   const [copied, setCopied] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const inviteLink = "https://zabaku.io/join/nrthwd-9f24e";
+
+  async function handleSendInvites() {
+    if (!emails.trim()) return;
+    setErrorMsg(null);
+    try {
+      const list = emails.split(/[\n,]+/).map((e) => e.trim()).filter(Boolean);
+      for (const email of list) {
+        await inviteMutation.mutateAsync({ email, role });
+      }
+      onClose();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to send invite(s).");
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -939,7 +1031,7 @@ function InviteModal({ onClose }: { onClose: () => void }) {
               <Send className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-sm font-semibold">Invite to Northwind</div>
+              <div className="text-sm font-semibold">Invite to workspace</div>
               <div className="text-[11px] text-muted-foreground">
                 They'll get an email with a workspace link
               </div>
@@ -954,6 +1046,12 @@ function InviteModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="space-y-4 px-5 py-5">
+          {errorMsg && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {errorMsg}
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-medium text-foreground/80">
               Email addresses
@@ -1043,10 +1141,15 @@ function InviteModal({ onClose }: { onClose: () => void }) {
               Cancel
             </button>
             <button
-              onClick={onClose}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-accent px-3.5 py-1.5 text-sm font-semibold text-white shadow-md shadow-primary/25 hover:shadow-primary/40"
+              onClick={handleSendInvites}
+              disabled={!emails.trim() || inviteMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-accent px-3.5 py-1.5 text-sm font-semibold text-white shadow-md shadow-primary/25 hover:shadow-primary/40 disabled:opacity-50"
             >
-              <Send className="h-3.5 w-3.5" />
+              {inviteMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
               Send invites
             </button>
           </div>

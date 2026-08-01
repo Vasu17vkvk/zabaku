@@ -1,6 +1,7 @@
 import zabakuLogo from "@/assets/zabaku-logo.png.asset.json";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { api } from "@/lib/api";
 import {
   Mail, Lock, User, Eye, EyeOff, ArrowRight, Check, Sparkles,
   Rocket, Users, Zap, Shield,
@@ -176,13 +177,84 @@ function SoftIllustration() {
 }
 
 /* =============== RIGHT — registration card =============== */
+interface RegisterResponse {
+  token?: string;
+  data?: { token?: string };
+}
+
+function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const trimmed = fullName.trim();
+  if (!trimmed) {
+    return { firstName: "", lastName: "" };
+  }
+  const spaceIndex = trimmed.indexOf(" ");
+  if (spaceIndex === -1) {
+    return { firstName: trimmed, lastName: "" };
+  }
+  const firstName = trimmed.slice(0, spaceIndex);
+  const lastName = trimmed.slice(spaceIndex + 1).trim();
+  return { firstName, lastName };
+}
+
 function RightPanel() {
+  const router = useRouter();
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
   const [agree, setAgree] = useState(false);
-  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const strength = useMemo(() => scorePassword(password), [password]);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    const { firstName, lastName } = splitFullName(name);
+
+    if (!firstName) {
+      setError("Please enter your full name.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const data = await api<RegisterResponse>("/auth/register", {
+        method: "POST",
+        body: {
+          firstName,
+          lastName,
+          email,
+          password,
+          workspaceName: `${firstName}'s Workspace`,
+        },
+      });
+
+      const token = data?.token ?? data?.data?.token;
+
+      if (token) {
+        localStorage.setItem("zabaku_token", token);
+        localStorage.setItem("token", token);
+        router.navigate({ to: "/dashboard" });
+      } else {
+        router.navigate({ to: "/login" });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
     <section className="relative flex items-center justify-center overflow-hidden p-6 sm:p-10 lg:p-14">
@@ -225,7 +297,7 @@ function RightPanel() {
             <span className="h-px flex-1 bg-border" />
           </div>
 
-          <form onSubmit={(e) => e.preventDefault()} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <Field
               id="name"
               label="Full name"
@@ -233,6 +305,8 @@ function RightPanel() {
               type="text"
               placeholder="Ada Lovelace"
               autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
             <Field
               id="email"
@@ -241,6 +315,8 @@ function RightPanel() {
               type="email"
               placeholder="you@company.com"
               autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
 
             {/* Password */}
@@ -302,6 +378,8 @@ function RightPanel() {
                   type={showPw2 ? "text" : "password"}
                   autoComplete="new-password"
                   placeholder="Re-enter your password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
                   className="h-11 w-full rounded-xl border border-border bg-surface pl-10 pr-11 text-[13.5px] text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-4 focus:ring-primary/15"
                 />
                 <button
@@ -335,14 +413,21 @@ function RightPanel() {
               </span>
             </label>
 
+            {/* error message */}
+            {error && (
+              <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] font-medium text-destructive">
+                {error}
+              </p>
+            )}
+
             {/* submit */}
             <button
               type="submit"
-              disabled={!agree}
+              disabled={!agree || isLoading}
               className="group mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-3.5 text-[14px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
             >
-              Create workspace
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              {isLoading ? "Creating workspace…" : "Create workspace"}
+              {!isLoading && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
             </button>
           </form>
 
@@ -359,9 +444,16 @@ function RightPanel() {
 }
 
 function Field({
-  id, label, icon, type = "text", placeholder, autoComplete,
+  id, label, icon, type = "text", placeholder, autoComplete, value, onChange,
 }: {
-  id: string; label: string; icon: React.ReactNode; type?: string; placeholder?: string; autoComplete?: string;
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  type?: string;
+  placeholder?: string;
+  autoComplete?: string;
+  value?: string;
+  onChange?: React.ChangeEventHandler<HTMLInputElement>;
 }) {
   return (
     <div>
@@ -375,6 +467,8 @@ function Field({
           type={type}
           autoComplete={autoComplete}
           placeholder={placeholder}
+          value={value}
+          onChange={onChange}
           className="h-11 w-full rounded-xl border border-border bg-surface pl-10 pr-4 text-[13.5px] text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-4 focus:ring-primary/15"
         />
       </div>

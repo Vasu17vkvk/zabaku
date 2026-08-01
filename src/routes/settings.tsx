@@ -1,5 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useWorkspaces,
+  useUpdateWorkspace,
+  useDeleteWorkspace,
+  getPersistedWorkspaceId,
+  persistWorkspaceId,
+} from "@/features/workspaces/hooks";
+import {
+  useProfile,
+  useUpdateProfile,
+  useUploadAvatar,
+  useChangePassword,
+  useUpdatePreferences,
+} from "@/features/profile/hooks";
+import { useAuth } from "@/hooks/useAuth";
+
 import {
   User,
   Palette,
@@ -30,7 +47,13 @@ import {
   Zap,
   Download,
   Plus,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
+
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -51,7 +74,12 @@ export const Route = createFileRoute("/settings")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: SettingsPage,
+  beforeLoad: requireAuth,
+  component: () => (
+    <ProtectedRoute>
+      <SettingsPage />
+    </ProtectedRoute>
+  ),
 });
 
 /* ------------------------------ nav data ---------------------------- */
@@ -108,82 +136,61 @@ function SettingsPage() {
               Manage account, workspace, and everything connected to your Zabaku.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              All changes saved
-            </span>
+
+          <div className="relative mt-3 sm:mt-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search settings"
+              className="h-9 w-60 rounded-lg border border-border/70 bg-surface pl-8 pr-3 text-sm placeholder:text-muted-foreground/70 focus:border-primary/50 focus:outline-none"
+            />
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
-          {/* Sidebar */}
-          <aside className="rounded-2xl border border-border/70 bg-surface p-3 shadow-sm lg:sticky lg:top-6 lg:self-start">
-            <div className="relative mb-2">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search settings"
-                className="h-8 w-full rounded-lg border border-border/70 bg-surface-muted/40 pl-7 pr-2 text-xs placeholder:text-muted-foreground/70 focus:border-primary/40 focus:outline-none"
-              />
-            </div>
-            <nav className="space-y-0.5">
-              {NAV.filter((n) =>
-                query
-                  ? `${n.label} ${n.desc}`
-                      .toLowerCase()
-                      .includes(query.toLowerCase())
-                  : true,
-              ).map((n) => {
-                const Icon = n.icon;
-                const isActive = active === n.id;
-                return (
-                  <button
-                    key={n.id}
-                    onClick={() => setActive(n.id)}
-                    className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition ${
-                      isActive
-                        ? "bg-gradient-to-r from-primary/10 to-accent/10 text-foreground shadow-sm"
-                        : "text-foreground/80 hover:bg-surface-muted"
-                    }`}
-                  >
-                    <span
-                      className={`flex h-7 w-7 items-center justify-center rounded-md ${
-                        isActive
-                          ? "bg-gradient-to-br from-primary to-accent text-white"
-                          : "bg-surface-muted text-muted-foreground group-hover:text-foreground"
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[240px_1fr]">
+          {/* Nav sidebar */}
+          <aside className="space-y-1">
+            {NAV.filter(
+              (n) =>
+                !query ||
+                n.label.toLowerCase().includes(query.toLowerCase()) ||
+                n.desc.toLowerCase().includes(query.toLowerCase())
+            ).map((n) => {
+              const Icon = n.icon;
+              const isSelected = active === n.id;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => setActive(n.id)}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left transition ${
+                    isSelected
+                      ? "bg-gradient-to-r from-primary to-accent text-white shadow-md shadow-primary/20 font-semibold"
+                      : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs">{n.label}</div>
+                    <div
+                      className={`truncate text-[10px] ${
+                        isSelected ? "text-white/80" : "text-muted-foreground/70"
                       }`}
                     >
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        {n.label}
-                      </span>
-                      <span className="block truncate text-[10.5px] text-muted-foreground">
-                        {n.desc}
-                      </span>
-                    </span>
-                    <ChevronRight
-                      className={`h-3 w-3 transition ${
-                        isActive
-                          ? "text-primary opacity-100"
-                          : "opacity-0 group-hover:opacity-60"
-                      }`}
-                    />
-                  </button>
-                );
-              })}
-            </nav>
+                      {n.desc}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
 
-            <div className="mt-3 rounded-xl border border-border/60 bg-gradient-to-br from-primary/5 to-accent/5 p-3">
-              <div className="flex items-center gap-2 text-[12px] font-semibold">
-                <Zap className="h-3.5 w-3.5 text-primary" />
-                Zabaku Pro
+            <div className="mt-6 rounded-2xl border border-border/70 bg-surface/50 p-4 backdrop-blur">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Team plan · Active
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Unlock AI planner, unlimited seats, and priority support.
+                12 of 25 seats used. Next invoice on March 1, 2026.
               </p>
               <button className="mt-2 w-full rounded-md bg-foreground py-1.5 text-[11px] font-semibold text-background hover:opacity-90">
                 Upgrade
@@ -196,9 +203,7 @@ function SettingsPage() {
             <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
               <span>Settings</span>
               <ChevronRight className="h-3 w-3" />
-              <span className="font-medium text-foreground">
-                {current.label}
-              </span>
+              <span className="font-medium text-foreground">{current.label}</span>
             </div>
 
             {active === "profile" && <ProfileSection />}
@@ -235,9 +240,7 @@ function Panel({
         <div>
           <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
           {description ? (
-            <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-              {description}
-            </p>
+            <p className="mt-0.5 text-[12.5px] text-muted-foreground">{description}</p>
           ) : null}
         </div>
         {action}
@@ -259,12 +262,8 @@ function Field({
   return (
     <label className="block">
       <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-foreground/85">
-          {label}
-        </span>
-        {hint ? (
-          <span className="text-[11px] text-muted-foreground">{hint}</span>
-        ) : null}
+        <span className="text-[12px] font-medium text-foreground/85">{label}</span>
+        {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
       </div>
       <div className="mt-1.5">{children}</div>
     </label>
@@ -281,6 +280,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     />
   );
 }
+
 function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
@@ -292,6 +292,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
     />
   );
 }
+
 function Select({
   value,
   onChange,
@@ -311,6 +312,7 @@ function Select({
     </select>
   );
 }
+
 function Toggle({
   checked,
   onChange,
@@ -334,6 +336,7 @@ function Toggle({
     </button>
   );
 }
+
 function Row({
   title,
   desc,
@@ -347,35 +350,38 @@ function Row({
     <div className="flex items-start justify-between gap-6 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium">{title}</div>
-        {desc ? (
-          <div className="mt-0.5 text-[12px] text-muted-foreground">{desc}</div>
-        ) : null}
+        {desc ? <div className="mt-0.5 text-[12px] text-muted-foreground">{desc}</div> : null}
       </div>
       <div className="shrink-0">{children}</div>
     </div>
   );
 }
+
 function FormFooter({
   onSave,
   onCancel,
+  loading = false,
 }: {
   onSave?: () => void;
   onCancel?: () => void;
+  loading?: boolean;
 }) {
   return (
     <div className="mt-6 flex items-center justify-end gap-2 border-t border-border/60 pt-4">
       <button
         onClick={onCancel}
-        className="rounded-lg border border-border/70 bg-surface px-3.5 py-2 text-sm font-medium hover:border-primary/40"
+        disabled={loading}
+        className="rounded-lg border border-border/70 bg-surface px-3.5 py-2 text-sm font-medium hover:border-primary/40 disabled:opacity-60"
       >
         Cancel
       </button>
       <button
         onClick={onSave}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-accent px-3.5 py-2 text-sm font-semibold text-white shadow-md shadow-primary/25 hover:shadow-primary/40"
+        disabled={loading}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-accent px-3.5 py-2 text-sm font-semibold text-white shadow-md shadow-primary/25 hover:shadow-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <Check className="h-3.5 w-3.5" />
-        Save changes
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        {loading ? "Saving…" : "Save changes"}
       </button>
     </div>
   );
@@ -384,37 +390,101 @@ function FormFooter({
 /* ------------------------------ sections ---------------------------- */
 
 function ProfileSection() {
+  const { user: authUser } = useAuth();
+  const { data: profile, isLoading } = useProfile();
+  const updateProfile = useUpdateProfile();
+  const uploadAvatar = useUploadAvatar();
+
+  const [name, setName] = useState("");
+  const [handle, setHandle] = useState("");
+  const [email, setEmail] = useState("");
+  const [title, setTitle] = useState("");
+  const [team, setTeam] = useState("");
+  const [bio, setBio] = useState("");
+  const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    setName(profile?.name ?? authUser?.name ?? "Elena Rodríguez");
+    setHandle(profile?.handle ?? "elena");
+    setEmail(profile?.email ?? authUser?.email ?? "elena@northwind.io");
+    setTitle((profile?.title as string) ?? "Senior Product Engineer");
+    setTeam((profile?.team as string) ?? "Engineering");
+    setBio((profile?.bio as string) ?? "Product engineer building AI-native SaaS.");
+  }, [profile, authUser]);
+
+  async function handleSave() {
+    setMsg(null);
+    try {
+      await updateProfile.mutateAsync({ name, handle, email, title, team, bio });
+      setMsg({ type: "success", text: "Profile updated successfully!" });
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to update profile." });
+    }
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setMsg(null);
+      try {
+        await uploadAvatar.mutateAsync(file);
+        setMsg({ type: "success", text: "Avatar updated successfully!" });
+      } catch (err) {
+        setMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to upload avatar." });
+      }
+    }
+  }
+
+  const avatarUrl = profile?.avatarUrl;
+  const initials = name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "ER";
+
   return (
     <>
-      <Panel
-        title="Profile"
-        description="This is how others will see you on Zabaku."
-      >
+      <Panel title="Profile" description="This is how others will see you on Zabaku.">
+        {msg && (
+          <div
+            className={`mb-4 flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-medium ${
+              msg.type === "success"
+                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                : "bg-destructive/10 text-destructive border border-destructive/30"
+            }`}
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {msg.text}
+          </div>
+        )}
+
         <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-surface-muted/40 p-4">
           <div className="relative">
-            <div
-              className="flex h-16 w-16 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-md"
-              style={{
-                background:
-                  "linear-gradient(135deg, oklch(0.72 0.16 268), oklch(0.5 0.2 320))",
-              }}
-            >
-              ER
-            </div>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={name} className="h-16 w-16 rounded-2xl object-cover shadow-md" />
+            ) : (
+              <div
+                className="flex h-16 w-16 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-md"
+                style={{ background: "linear-gradient(135deg, oklch(0.72 0.16 268), oklch(0.5 0.2 320))" }}
+              >
+                {initials}
+              </div>
+            )}
             <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white ring-2 ring-surface">
               <Camera className="h-3 w-3" />
             </span>
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold">Elena Rodríguez</div>
+            <div className="text-sm font-semibold">{name}</div>
             <div className="text-xs text-muted-foreground">
               PNG or JPG, up to 2 MB. Square images work best.
             </div>
             <div className="mt-2 flex gap-2">
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
-                <Upload className="h-3 w-3" /> Upload new
-              </button>
-              <button className="rounded-md px-2.5 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
+                <Upload className="h-3 w-3" />
+                {uploadAvatar.isPending ? "Uploading…" : "Upload new"}
+                <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+              </label>
+              <button
+                onClick={() => updateProfile.mutate({ avatarUrl: "" })}
+                className="rounded-md px-2.5 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50"
+              >
                 Remove
               </button>
             </div>
@@ -423,114 +493,86 @@ function ProfileSection() {
 
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Full name">
-            <Input defaultValue="Elena Rodríguez" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Display name" hint="Shown in comments and @mentions">
-            <Input defaultValue="Elena" />
+          <Field label="Display handle" hint="Shown in @mentions">
+            <Input value={handle} onChange={(e) => setHandle(e.target.value)} />
           </Field>
           <Field label="Email">
-            <Input type="email" defaultValue="elena@northwind.io" />
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
-          <Field label="Role">
-            <Input defaultValue="Senior Product Engineer" />
+          <Field label="Job title">
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Field label="Team / Department">
+            <Input value={team} onChange={(e) => setTeam(e.target.value)} />
           </Field>
           <Field label="Timezone">
-            <Select value="cet" onChange={() => {}}>
-              <option value="cet">Europe / Madrid (GMT+1)</option>
-              <option value="pst">America / Los Angeles (GMT-8)</option>
-              <option value="jst">Asia / Tokyo (GMT+9)</option>
-            </Select>
-          </Field>
-          <Field label="Language">
-            <Select value="en" onChange={() => {}}>
-              <option value="en">English</option>
-              <option value="es">Español</option>
-              <option value="fr">Français</option>
-              <option value="de">Deutsch</option>
-            </Select>
+            <Input defaultValue="Europe/Madrid (GMT+1)" readOnly className="bg-surface-muted/50" />
           </Field>
         </div>
-        <div className="mt-4">
-          <Field label="Bio" hint="Max 240 chars">
-            <Textarea
-              defaultValue="Product engineer building AI-native SaaS. Previously at Linear and Vercel."
-            />
-          </Field>
-        </div>
-        <FormFooter />
-      </Panel>
 
-      <Panel
-        title="Danger zone"
-        description="Irreversible actions on your Zabaku account."
-      >
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-200/70 bg-rose-50/40 p-4">
-          <div>
-            <div className="text-[13px] font-semibold text-rose-700">
-              Delete account
-            </div>
-            <div className="mt-0.5 text-[12px] text-rose-700/80">
-              Permanently delete your account and all associated data.
-            </div>
-          </div>
-          <button className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-sm font-semibold text-rose-700 hover:bg-rose-100">
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete account
-          </button>
+        <div className="mt-4">
+          <Field label="Bio" hint="Brief summary for your profile card">
+            <Textarea value={bio} onChange={(e) => setBio(e.target.value)} />
+          </Field>
         </div>
+
+        <FormFooter onSave={handleSave} loading={updateProfile.isPending} />
       </Panel>
     </>
   );
 }
 
 function AppearanceSection() {
+  const updatePreferences = useUpdatePreferences();
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
-  const [accent, setAccent] = useState("indigo");
-  const accents = [
-    { id: "indigo", hue: 268 },
-    { id: "cyan", hue: 200 },
-    { id: "rose", hue: 350 },
-    { id: "emerald", hue: 150 },
-    { id: "amber", hue: 60 },
-    { id: "violet", hue: 300 },
-  ];
+  const [accent, setAccent] = useState("violet");
   const [density, setDensity] = useState("comfortable");
+
+  const themes: { id: "light" | "dark" | "system"; label: string; icon: typeof Sun }[] = [
+    { id: "light", label: "Light", icon: Sun },
+    { id: "dark", label: "Dark", icon: Moon },
+    { id: "system", label: "System", icon: Monitor },
+  ];
+
+  const accents = [
+    { id: "violet", hue: 268 },
+    { id: "emerald", hue: 150 },
+    { id: "amber", hue: 45 },
+    { id: "rose", hue: 340 },
+    { id: "sky", hue: 210 },
+  ];
+
+  function handleThemeChange(t: "light" | "dark" | "system") {
+    setTheme(t);
+    updatePreferences.mutate({ theme: t });
+  }
 
   return (
     <>
-      <Panel title="Theme" description="Choose how Zabaku looks to you.">
+      <Panel title="Theme" description="Select or sync with your system preference.">
         <div className="grid grid-cols-3 gap-3">
-          {(
-            [
-              { id: "light", icon: Sun, label: "Light" },
-              { id: "dark", icon: Moon, label: "Dark" },
-              { id: "system", icon: Monitor, label: "System" },
-            ] as const
-          ).map((t) => {
+          {themes.map((t) => {
             const Icon = t.icon;
             const active = theme === t.id;
             return (
               <button
                 key={t.id}
-                onClick={() => setTheme(t.id)}
-                className={`group overflow-hidden rounded-xl border transition ${
+                onClick={() => handleThemeChange(t.id)}
+                className={`overflow-hidden rounded-xl border p-1 text-left transition ${
                   active
-                    ? "border-primary/60 ring-2 ring-primary/25"
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                     : "border-border/70 hover:border-primary/40"
                 }`}
               >
                 <div
-                  className={`aspect-[16/8] w-full ${
-                    t.id === "light"
-                      ? "bg-gradient-to-br from-white to-neutral-100"
-                      : t.id === "dark"
-                        ? "bg-gradient-to-br from-neutral-900 to-neutral-800"
-                        : "bg-gradient-to-r from-white via-white to-neutral-900"
-                  } relative`}
+                  className={`relative h-20 rounded-lg border ${
+                    t.id === "dark" ? "bg-slate-900 border-slate-800" : "bg-slate-50 border-slate-200"
+                  }`}
                 >
-                  <div className="absolute left-3 top-3 flex gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  <div className="absolute left-2 top-2 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-primary" />
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                   </div>
                   <div
@@ -576,10 +618,7 @@ function AppearanceSection() {
         </div>
       </Panel>
 
-      <Panel
-        title="Interface"
-        description="Density and typography preferences."
-      >
+      <Panel title="Interface" description="Density and typography preferences.">
         <Row title="Density" desc="Adjust spacing across the app.">
           <div className="inline-flex rounded-lg border border-border/70 bg-surface p-0.5">
             {["compact", "comfortable", "spacious"].map((d) => (
@@ -597,319 +636,236 @@ function AppearanceSection() {
             ))}
           </div>
         </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Reduce motion" desc="Minimize non-essential animations.">
-          <ToggleStateful />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Show grid guides" desc="Overlay layout guides on hover.">
-          <ToggleStateful />
-        </Row>
       </Panel>
     </>
   );
-}
-
-function ToggleStateful({ defaultOn = false }: { defaultOn?: boolean }) {
-  const [on, setOn] = useState(defaultOn);
-  return <Toggle checked={on} onChange={setOn} />;
 }
 
 function NotificationsSection() {
+  const updatePreferences = useUpdatePreferences();
+  const [emailNotifs, setEmailNotifs] = useState(true);
+  const [pushNotifs, setPushNotifs] = useState(false);
+
   return (
     <>
-      <Panel
-        title="Notification channels"
-        description="Choose where you want to receive updates."
-      >
+      <Panel title="Notification channels" description="Choose where you want to receive updates.">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <ChannelCard icon={Mail} label="Email" desc="elena@northwind.io" />
-          <ChannelCard
-            icon={MessageSquare}
-            label="In-app"
-            desc="Toast + inbox"
-            defaultOn
-          />
-          <ChannelCard icon={Smartphone} label="Mobile push" desc="iOS · Android" />
+          <button
+            onClick={() => {
+              setEmailNotifs(!emailNotifs);
+              updatePreferences.mutate({ emailNotifications: !emailNotifs });
+            }}
+            className={`flex items-start gap-3 rounded-xl border p-4 text-left transition ${
+              emailNotifs
+                ? "border-primary/40 bg-gradient-to-br from-primary/[0.05] to-accent/[0.05]"
+                : "border-border/70 hover:border-primary/40"
+            }`}
+          >
+            <span
+              className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                emailNotifs
+                  ? "bg-gradient-to-br from-primary to-accent text-white"
+                  : "bg-surface-muted text-muted-foreground"
+              }`}
+            >
+              <Mail className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold">Email</div>
+              <div className="truncate text-[11px] text-muted-foreground">Direct inbox</div>
+            </div>
+            <Toggle checked={emailNotifs} onChange={setEmailNotifs} />
+          </button>
+
+          <button
+            onClick={() => {
+              setPushNotifs(!pushNotifs);
+              updatePreferences.mutate({ pushNotifications: !pushNotifs });
+            }}
+            className={`flex items-start gap-3 rounded-xl border p-4 text-left transition ${
+              pushNotifs
+                ? "border-primary/40 bg-gradient-to-br from-primary/[0.05] to-accent/[0.05]"
+                : "border-border/70 hover:border-primary/40"
+            }`}
+          >
+            <span
+              className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                pushNotifs
+                  ? "bg-gradient-to-br from-primary to-accent text-white"
+                  : "bg-surface-muted text-muted-foreground"
+              }`}
+            >
+              <Smartphone className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold">Mobile push</div>
+              <div className="truncate text-[11px] text-muted-foreground">iOS · Android</div>
+            </div>
+            <Toggle checked={pushNotifs} onChange={setPushNotifs} />
+          </button>
         </div>
       </Panel>
-
-      <Panel
-        title="What to notify me about"
-        description="Fine-tune per event type."
-      >
-        <Row
-          title="Mentions"
-          desc="Someone @mentions you in a comment or doc."
-        >
-          <div className="flex items-center gap-2">
-            <ChannelPill on label="Email" />
-            <ChannelPill on label="Push" />
-            <ChannelPill on label="In-app" />
-          </div>
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Reviews" desc="You're asked to review a PR.">
-          <div className="flex items-center gap-2">
-            <ChannelPill on label="Email" />
-            <ChannelPill label="Push" />
-            <ChannelPill on label="In-app" />
-          </div>
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="AI updates" desc="Zabaku AI finishes a request for you.">
-          <div className="flex items-center gap-2">
-            <ChannelPill label="Email" />
-            <ChannelPill on label="Push" />
-            <ChannelPill on label="In-app" />
-          </div>
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Weekly digest" desc="Every Monday at 9:00 AM.">
-          <ToggleStateful defaultOn />
-        </Row>
-      </Panel>
     </>
-  );
-}
-
-function ChannelCard({
-  icon: Icon,
-  label,
-  desc,
-  defaultOn = false,
-}: {
-  icon: typeof Mail;
-  label: string;
-  desc: string;
-  defaultOn?: boolean;
-}) {
-  const [on, setOn] = useState(defaultOn);
-  return (
-    <button
-      onClick={() => setOn((v) => !v)}
-      className={`flex items-start gap-3 rounded-xl border p-4 text-left transition ${
-        on
-          ? "border-primary/40 bg-gradient-to-br from-primary/[0.05] to-accent/[0.05]"
-          : "border-border/70 hover:border-primary/40"
-      }`}
-    >
-      <span
-        className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-          on
-            ? "bg-gradient-to-br from-primary to-accent text-white"
-            : "bg-surface-muted text-muted-foreground"
-        }`}
-      >
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-semibold">{label}</div>
-        <div className="truncate text-[11px] text-muted-foreground">{desc}</div>
-      </div>
-      <Toggle checked={on} onChange={setOn} />
-    </button>
-  );
-}
-function ChannelPill({ label, on = false }: { label: string; on?: boolean }) {
-  const [active, setActive] = useState(on);
-  return (
-    <button
-      onClick={() => setActive((v) => !v)}
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-        active
-          ? "bg-primary/10 text-primary"
-          : "bg-surface-muted text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {active ? <Check className="h-3 w-3" /> : null}
-      {label}
-    </button>
   );
 }
 
 function WorkspaceSection() {
+  const { data: workspaces = [], isLoading, isError, error } = useWorkspaces();
+  const updateWorkspace = useUpdateWorkspace();
+  const deleteWorkspace = useDeleteWorkspace();
+
+  const [activeId, setActiveId] = useState<string>(() => getPersistedWorkspaceId() ?? "");
+  const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
+
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [teamSize, setTeamSize] = useState("");
+
+  useEffect(() => {
+    if (active) {
+      setName(active.name ?? "");
+      setSlug(active.slug ?? "");
+      setIndustry((active.industry as string) ?? "saas");
+      setTeamSize((active.teamSize as string) ?? "11-50");
+      if (!activeId || activeId !== active.id) {
+        setActiveId(active.id);
+        persistWorkspaceId(active.id);
+      }
+    }
+  }, [active]);
+
+  function handleSave() {
+    if (!active) return;
+    updateWorkspace.mutate({
+      workspaceId: active.id,
+      input: { name, slug, industry, teamSize },
+    });
+  }
+
+  if (isLoading) {
+    return (
+      <Panel title="Workspace">
+        <div className="py-12 text-center text-sm text-muted-foreground">Loading workspace…</div>
+      </Panel>
+    );
+  }
+
+  if (isError || !active) {
+    return (
+      <Panel title="Workspace">
+        <div className="py-12 text-center text-sm text-muted-foreground">
+          {error instanceof Error ? error.message : "No workspaces found."}
+        </div>
+      </Panel>
+    );
+  }
+
+  const initial = active.name ? active.name.charAt(0).toUpperCase() : "W";
+
   return (
     <>
-      <Panel
-        title="Workspace"
-        description="Details visible to everyone in your workspace."
-      >
+      <Panel title="Workspace" description="Details visible to everyone in your workspace.">
         <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-surface-muted/40 p-4">
           <div
             className="flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-md"
-            style={{
-              background:
-                "linear-gradient(135deg, oklch(0.62 0.22 268), oklch(0.7 0.18 200))",
-            }}
+            style={{ background: "linear-gradient(135deg, oklch(0.62 0.22 268), oklch(0.7 0.18 200))" }}
           >
-            N
+            {initial}
           </div>
           <div className="flex-1">
-            <div className="text-sm font-semibold">Northwind</div>
+            <div className="text-sm font-semibold">{active.name}</div>
             <div className="text-xs text-muted-foreground">
-              zabaku.dev/northwind · 24 members
+              {active.slug ? `zabaku.dev/${active.slug as string}` : ""}
             </div>
           </div>
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
-            <Upload className="h-3 w-3" /> Change logo
-          </button>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Workspace name">
-            <Input defaultValue="Northwind" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Workspace URL" hint="zabaku.dev/…">
-            <Input defaultValue="northwind" />
-          </Field>
-          <Field label="Industry">
-            <Select value="saas" onChange={() => {}}>
-              <option value="saas">SaaS</option>
-              <option value="agency">Agency</option>
-              <option value="fintech">Fintech</option>
-            </Select>
-          </Field>
-          <Field label="Team size">
-            <Select value="21-50" onChange={() => {}}>
-              <option>1-10</option>
-              <option>11-20</option>
-              <option>21-50</option>
-              <option>50+</option>
-            </Select>
+            <Input value={slug} onChange={(e) => setSlug(e.target.value)} />
           </Field>
         </div>
-        <FormFooter />
-      </Panel>
 
-      <Panel
-        title="Members"
-        description="Invite teammates or manage roles."
-        action={
-          <button className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-background hover:opacity-90">
-            <Plus className="h-3 w-3" /> Invite people
-          </button>
-        }
-      >
-        <div className="divide-y divide-border/60">
-          {[
-            { name: "Elena Rodríguez", email: "elena@northwind.io", role: "Owner", hue: 268 },
-            { name: "Priya Sharma", email: "priya@northwind.io", role: "Admin", hue: 320 },
-            { name: "Kai Nakamura", email: "kai@northwind.io", role: "Member", hue: 150 },
-            { name: "Marco Bianchi", email: "marco@northwind.io", role: "Member", hue: 210 },
-          ].map((m) => (
-            <div key={m.email} className="flex items-center gap-3 py-3">
-              <span
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white"
-                style={{
-                  background: `linear-gradient(135deg, oklch(0.72 0.16 ${m.hue}), oklch(0.5 0.2 ${
-                    (m.hue + 40) % 360
-                  }))`,
-                }}
-              >
-                {m.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium">{m.name}</div>
-                <div className="truncate text-[11px] text-muted-foreground">
-                  {m.email}
-                </div>
-              </div>
-              <Select value={m.role} onChange={() => {}}>
-                <option>Owner</option>
-                <option>Admin</option>
-                <option>Member</option>
-                <option>Guest</option>
-              </Select>
-            </div>
-          ))}
-        </div>
+        <FormFooter onSave={handleSave} loading={updateWorkspace.isPending} />
       </Panel>
     </>
   );
 }
 
 function SecuritySection() {
+  const changePassword = useChangePassword();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  async function handlePasswordSave() {
+    setMsg(null);
+    if (!currentPassword || !newPassword) {
+      setMsg({ type: "error", text: "Please enter your current and new password." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMsg({ type: "error", text: "New passwords do not match." });
+      return;
+    }
+    try {
+      await changePassword.mutateAsync({ currentPassword, newPassword });
+      setMsg({ type: "success", text: "Password changed successfully!" });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to change password." });
+    }
+  }
+
   return (
     <>
-      <Panel
-        title="Password"
-        description="Use a strong, unique password."
-      >
+      <Panel title="Password" description="Use a strong, unique password.">
+        {msg && (
+          <div
+            className={`mb-4 flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs font-medium ${
+              msg.type === "success"
+                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                : "bg-destructive/10 text-destructive border border-destructive/30"
+            }`}
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {msg.text}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Current password">
-            <Input type="password" defaultValue="••••••••••" />
+            <Input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
           </Field>
           <div />
           <Field label="New password">
-            <Input type="password" placeholder="At least 12 characters" />
+            <Input
+              type="password"
+              placeholder="At least 8 characters"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
           </Field>
           <Field label="Confirm new password">
-            <Input type="password" />
+            <Input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
           </Field>
         </div>
-        <FormFooter />
-      </Panel>
-
-      <Panel
-        title="Two-factor authentication"
-        description="Add an extra layer of security to your account."
-      >
-        <Row
-          title="Authenticator app"
-          desc="Use apps like 1Password or Authy for time-based codes."
-        >
-          <ToggleStateful defaultOn />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="SMS backup" desc="Fallback codes to your phone.">
-          <ToggleStateful />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Passkeys" desc="Sign in with Touch ID / Face ID.">
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
-            <Key className="h-3 w-3" /> Add passkey
-          </button>
-        </Row>
-      </Panel>
-
-      <Panel
-        title="Active sessions"
-        description="Devices currently signed into your account."
-      >
-        <div className="divide-y divide-border/60">
-          {[
-            { device: "MacBook Pro · Chrome", place: "Barcelona, ES · now", current: true },
-            { device: "iPhone 15 · Zabaku app", place: "Barcelona, ES · 2 h ago" },
-            { device: "Windows · Firefox", place: "Berlin, DE · 3 d ago" },
-          ].map((s) => (
-            <div key={s.device} className="flex items-center gap-3 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-muted">
-                <Monitor className="h-3.5 w-3.5 text-muted-foreground" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-[13px] font-medium">
-                  {s.device}
-                  {s.current ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 text-[10px] font-semibold text-emerald-700">
-                      <span className="h-1 w-1 rounded-full bg-emerald-500" />
-                      This device
-                    </span>
-                  ) : null}
-                </div>
-                <div className="text-[11px] text-muted-foreground">{s.place}</div>
-              </div>
-              {!s.current ? (
-                <button className="text-[11px] font-medium text-rose-600 hover:underline">
-                  Sign out
-                </button>
-              ) : null}
-            </div>
-          ))}
-        </div>
+        <FormFooter onSave={handlePasswordSave} loading={changePassword.isPending} />
       </Panel>
     </>
   );
@@ -917,329 +873,46 @@ function SecuritySection() {
 
 function AISection() {
   return (
-    <>
-      <Panel
-        title="Copilot"
-        description="How Zabaku AI shows up while you work."
-      >
-        <Row title="Enable Copilot" desc="Suggestions across tasks, docs and PRs.">
-          <ToggleStateful defaultOn />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Autocomplete in editor" desc="Inline suggestions as you type.">
-          <ToggleStateful defaultOn />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Voice mode" desc="Talk to Zabaku with Whisper transcription.">
-          <ToggleStateful />
-        </Row>
-      </Panel>
-
-      <Panel
-        title="Default model"
-        description="Used by AI Workspace and Copilot."
-      >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {[
-            { id: "zbk-fast", name: "Zabaku Fast", desc: "Best for quick tasks", tag: "Included" },
-            { id: "zbk-pro", name: "Zabaku Pro", desc: "Balanced reasoning", tag: "Recommended" },
-            { id: "zbk-max", name: "Zabaku Max", desc: "Deep reasoning · slower", tag: "Pro plan" },
-          ].map((m, i) => (
-            <button
-              key={m.id}
-              className={`rounded-xl border p-4 text-left transition ${
-                i === 1
-                  ? "border-primary/40 bg-gradient-to-br from-primary/[0.05] to-accent/[0.05] ring-2 ring-primary/15"
-                  : "border-border/70 hover:border-primary/40"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent text-white">
-                    <Sparkles className="h-3.5 w-3.5" />
-                  </span>
-                  <div className="text-[13px] font-semibold">{m.name}</div>
-                </div>
-                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {m.tag}
-                </span>
-              </div>
-              <p className="mt-2 text-[11.5px] text-muted-foreground">{m.desc}</p>
-            </button>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel
-        title="Data & privacy"
-        description="Control how your data is used to improve Zabaku AI."
-      >
-        <Row
-          title="Use my content to improve AI"
-          desc="Prompts and responses may be reviewed."
-        >
-          <ToggleStateful />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Redact PII in prompts" desc="Automatically mask emails and names.">
-          <ToggleStateful defaultOn />
-        </Row>
-        <div className="h-px bg-border/60" />
-        <Row title="Response length" desc="How verbose AI answers should be.">
-          <Select value="balanced" onChange={() => {}}>
-            <option value="concise">Concise</option>
-            <option value="balanced">Balanced</option>
-            <option value="detailed">Detailed</option>
-          </Select>
-        </Row>
-      </Panel>
-    </>
+    <Panel title="Copilot" description="How Zabaku AI shows up while you work.">
+      <Row title="Enable Copilot" desc="Suggestions across tasks, docs and PRs.">
+        <Toggle checked={true} onChange={() => {}} />
+      </Row>
+    </Panel>
   );
 }
 
 function BillingSection() {
   return (
-    <>
-      <Panel
-        title="Current plan"
-        action={
-          <button className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-accent px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-primary/25 hover:shadow-primary/40">
-            Upgrade plan <ArrowUpRight className="h-3 w-3" />
-          </button>
-        }
-      >
-        <div className="rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/[0.06] to-accent/[0.06] p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                  Team
-                </span>
-                <div className="text-lg font-semibold">$29 / seat · month</div>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                24 seats · renews Feb 12, 2026
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-semibold tabular-nums">$696</div>
-              <div className="text-[11px] text-muted-foreground">next invoice</div>
-            </div>
-          </div>
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface">
-            <div className="h-full w-[68%] rounded-full bg-gradient-to-r from-primary to-accent" />
-          </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>AI credits used</span>
-            <span className="tabular-nums">6,842 / 10,000</span>
-          </div>
+    <Panel title="Plan" description="Manage your current subscription.">
+      <div className="flex items-center justify-between rounded-xl border border-border/70 bg-surface-muted/40 p-4">
+        <div>
+          <div className="text-sm font-semibold">Team Plan</div>
+          <div className="text-xs text-muted-foreground">$29 / member / month</div>
         </div>
-      </Panel>
-
-      <Panel title="Payment method">
-        <div className="flex items-center justify-between rounded-xl border border-border/60 bg-surface-muted/40 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-14 items-center justify-center rounded-md bg-gradient-to-br from-neutral-900 to-neutral-700 text-[10px] font-bold text-white">
-              VISA
-            </div>
-            <div>
-              <div className="text-[13px] font-semibold">
-                Visa ending in 4242
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                Expires 08 / 2028 · Elena Rodríguez
-              </div>
-            </div>
-          </div>
-          <button className="rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
-            Update
-          </button>
-        </div>
-      </Panel>
-
-      <Panel
-        title="Invoices"
-        action={
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
-            <Download className="h-3 w-3" /> Export all
-          </button>
-        }
-      >
-        <div className="overflow-hidden rounded-xl border border-border/60">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-muted/60 text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium">Date</th>
-                <th className="px-4 py-2 text-left font-medium">Description</th>
-                <th className="px-4 py-2 text-right font-medium">Amount</th>
-                <th className="px-4 py-2 text-right font-medium">Status</th>
-                <th className="px-4 py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {[
-                ["Jan 12, 2026", "Team plan · 24 seats", "$696.00", "Paid"],
-                ["Dec 12, 2025", "Team plan · 22 seats", "$638.00", "Paid"],
-                ["Nov 12, 2025", "Team plan · 20 seats", "$580.00", "Paid"],
-              ].map((r) => (
-                <tr key={r[0]} className="text-[13px]">
-                  <td className="px-4 py-2.5 text-muted-foreground">{r[0]}</td>
-                  <td className="px-4 py-2.5">{r[1]}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{r[2]}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                      <span className="h-1 w-1 rounded-full bg-emerald-500" />
-                      {r[3]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <button className="text-muted-foreground hover:text-foreground">
-                      <Download className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-    </>
+        <button className="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white">
+          Manage Plan
+        </button>
+      </div>
+    </Panel>
   );
 }
 
 function IntegrationsSection() {
-  const items = [
-    {
-      id: "github",
-      name: "GitHub",
-      desc: "Sync issues, PRs and commits",
-      icon: Github,
-      tint: "bg-neutral-900 text-white",
-      connected: true,
-    },
-    {
-      id: "slack",
-      name: "Slack",
-      desc: "Deliver alerts to channels",
-      icon: Slack,
-      tint: "bg-rose-500 text-white",
-      connected: true,
-    },
-    {
-      id: "figma",
-      name: "Figma",
-      desc: "Embed frames in specs",
-      icon: Figma,
-      tint: "bg-orange-500 text-white",
-      connected: false,
-    },
-    {
-      id: "linear",
-      name: "Linear",
-      desc: "Two-way task sync",
-      icon: Globe,
-      tint: "bg-orange-600 text-white",
-      connected: false,
-    },
-    {
-      id: "notion",
-      name: "Notion",
-      desc: "Import docs and roadmaps",
-      icon: Globe,
-      tint: "bg-neutral-800 text-white",
-      connected: false,
-    },
-    {
-      id: "vercel",
-      name: "Vercel",
-      desc: "Deploy previews on PRs",
-      icon: Globe,
-      tint: "bg-black text-white",
-      connected: true,
-    },
-  ];
   return (
-    <>
-      <Panel
-        title="Connected apps"
-        description="Extend Zabaku with the tools you already use."
-      >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {items.map((i) => {
-            const Icon = i.icon;
-            return (
-              <div
-                key={i.id}
-                className="group flex items-center gap-3 rounded-xl border border-border/70 bg-surface p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
-              >
-                <span
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${i.tint}`}
-                >
-                  <Icon className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <div className="text-[13px] font-semibold">{i.name}</div>
-                    {i.connected ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        <span className="h-1 w-1 rounded-full bg-emerald-500" />
-                        Connected
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="truncate text-[11px] text-muted-foreground">
-                    {i.desc}
-                  </div>
-                </div>
-                <button
-                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${
-                    i.connected
-                      ? "border border-border/70 bg-surface hover:border-primary/40"
-                      : "bg-foreground text-background hover:opacity-90"
-                  }`}
-                >
-                  {i.connected ? "Manage" : "Connect"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
-
-      <Panel
-        title="Developer"
-        description="Personal API keys and webhooks."
-        action={
-          <button className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-background hover:opacity-90">
-            <Plus className="h-3 w-3" /> New key
-          </button>
-        }
-      >
-        <div className="divide-y divide-border/60">
-          {[
-            { name: "Personal · CLI", key: "zbk_live_9a8f••••••••3c1e", used: "2h ago" },
-            { name: "Zapier automation", key: "zbk_live_pk_47••••••••bb90", used: "3d ago" },
-          ].map((k) => (
-            <div key={k.name} className="flex items-center gap-3 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-muted">
-                <Key className="h-3.5 w-3.5 text-muted-foreground" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium">{k.name}</div>
-                <div className="truncate font-mono text-[11px] text-muted-foreground">
-                  {k.key}
-                </div>
-              </div>
-              <span className="text-[11px] text-muted-foreground">
-                Used {k.used}
-              </span>
-              <button className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted hover:text-rose-600">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+    <Panel title="Connected Apps" description="Manage third-party integrations.">
+      <div className="space-y-3">
+        {[{ name: "GitHub", desc: "Sync repositories and pull requests" }, { name: "Slack", desc: "Send notifications to channels" }].map((app) => (
+          <div key={app.name} className="flex items-center justify-between rounded-xl border border-border/70 p-3">
+            <div>
+              <div className="text-xs font-semibold">{app.name}</div>
+              <div className="text-[11px] text-muted-foreground">{app.desc}</div>
             </div>
-          ))}
-        </div>
-      </Panel>
-    </>
+            <button className="rounded-md border border-border/70 bg-surface px-2.5 py-1 text-xs font-medium">
+              Configure
+            </button>
+          </div>
+        ))}
+      </div>
+    </Panel>
   );
 }

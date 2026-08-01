@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   Bell,
@@ -22,7 +22,19 @@ import {
   ArrowUpRight,
   Zap,
   FileText,
+  Loader2,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
+
+import { requireAuth } from "@/lib/requireAuth";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import {
+  useNotifications,
+  useUnreadNotifications,
+  useMarkNotificationAsRead,
+} from "@/features/notifications/hooks";
+import type { ApiNotification } from "@/features/notifications/api";
 
 export const Route = createFileRoute("/notifications")({
   head: () => ({
@@ -43,7 +55,12 @@ export const Route = createFileRoute("/notifications")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: NotificationsPage,
+  beforeLoad: requireAuth,
+  component: () => (
+    <ProtectedRoute>
+      <NotificationsPage />
+    </ProtectedRoute>
+  ),
 });
 
 /* ------------------------------- data ------------------------------- */
@@ -73,9 +90,16 @@ type Notification = {
   read: boolean;
   starred?: boolean;
   actions?: { primary?: string; secondary?: string };
+  entityRef?: {
+    type?: string;
+    id?: string;
+    projectId?: string;
+    taskId?: string;
+    url?: string;
+  };
 };
 
-const NOTIFS: Notification[] = [
+const DEFAULT_NOTIFS: Notification[] = [
   {
     id: "n1",
     group: "Today",
@@ -87,6 +111,7 @@ const NOTIFS: Notification[] = [
     time: "2 min ago",
     read: false,
     actions: { primary: "Reply", secondary: "Open doc" },
+    entityRef: { taskId: "1" },
   },
   {
     id: "n2",
@@ -99,6 +124,7 @@ const NOTIFS: Notification[] = [
     time: "18 min ago",
     read: false,
     actions: { primary: "Review", secondary: "View diff" },
+    entityRef: { projectId: "1" },
   },
   {
     id: "n3",
@@ -134,7 +160,6 @@ const NOTIFS: Notification[] = [
     time: "3 h ago",
     read: true,
   },
-
   {
     id: "n6",
     group: "Yesterday",
@@ -158,50 +183,6 @@ const NOTIFS: Notification[] = [
     time: "Yesterday, 2:03 PM",
     read: false,
     actions: { primary: "Investigate" },
-  },
-  {
-    id: "n8",
-    group: "Yesterday",
-    kind: "event",
-    actor: { name: "Calendar", hue: 190 },
-    title: "Design review starts in 15 minutes",
-    body: "Sprint 42 design sync — with Priya, Sofia, Elena.",
-    time: "Yesterday, 10:45 AM",
-    read: true,
-  },
-
-  {
-    id: "n9",
-    group: "This Week",
-    kind: "doc",
-    actor: { name: "Sofia Lindqvist", hue: 290 },
-    title: "shared a doc: Onboarding v3 spec",
-    body: "First draft of the new interactive onboarding — includes AI-guided setup wizard.",
-    project: "Onboarding",
-    time: "Mon, 3:18 PM",
-    read: true,
-  },
-  {
-    id: "n10",
-    group: "This Week",
-    kind: "review",
-    actor: { name: "Owen Bright", hue: 190 },
-    title: "approved PR #476",
-    body: "Retry ladder for failed cards — ready to merge.",
-    project: "Billing v2",
-    time: "Sun, 9:02 AM",
-    read: true,
-  },
-  {
-    id: "n11",
-    group: "This Week",
-    kind: "ai",
-    actor: { name: "Zabaku AI", hue: 268 },
-    title: "summarized 47 tasks into weekly digest",
-    body: "Engineering shipped 24% more this week — Priya and Kai closed the most reviews.",
-    time: "Sun, 8:00 AM",
-    read: true,
-    actions: { primary: "View digest" },
   },
 ];
 
@@ -243,6 +224,72 @@ const FILTERS = [
 type FilterId = (typeof FILTERS)[number]["id"];
 
 /* ------------------------------ helpers ----------------------------- */
+
+function deriveHue(name?: string): number {
+  if (!name) return 210;
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 360);
+}
+
+function deriveGroup(iso?: string, fallbackGroup?: string): Group {
+  if (fallbackGroup && ["Today", "Yesterday", "This Week", "Earlier"].includes(fallbackGroup)) {
+    return fallbackGroup as Group;
+  }
+  if (!iso) return "Today";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "Today";
+  const diffDays = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  if (diffDays < 1) return "Today";
+  if (diffDays < 2) return "Yesterday";
+  if (diffDays < 7) return "This Week";
+  return "Earlier";
+}
+
+function formatTimeAgo(iso?: string, timeStr?: string): string {
+  if (timeStr) return timeStr;
+  if (!iso) return "just now";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return iso;
+  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 60) return "just now";
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} d ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function normaliseNotification(n: ApiNotification, idx: number): Notification {
+  const id = n._id ?? n.id ?? `n-${idx}`;
+  const actorName = n.actor?.name ?? "Teammate";
+  const hue = n.actor?.hue ?? deriveHue(actorName);
+  const read = n.read ?? n.isRead ?? false;
+  const rawKind = (n.kind ?? "mention").toLowerCase() as Kind;
+
+  return {
+    id,
+    group: deriveGroup(n.createdAt, n.group),
+    kind: KIND_META[rawKind] ? rawKind : "mention",
+    actor: { name: actorName, hue },
+    title: n.title,
+    body: n.body ?? n.message ?? n.description ?? "",
+    project: n.project ?? n.projectName,
+    time: formatTimeAgo(n.createdAt, n.time),
+    read,
+    starred: n.starred,
+    actions: n.actions,
+    entityRef: n.entityRef ?? {
+      projectId: n.projectId,
+      taskId: n.taskId,
+      url: n.targetUrl ?? n.link,
+    },
+  };
+}
 
 function initials(name: string) {
   return name
@@ -294,11 +341,28 @@ function Avatar({
 /* -------------------------------- page ------------------------------- */
 
 function NotificationsPage() {
-  const [items, setItems] = useState<Notification[]>(NOTIFS);
+  const navigate = useNavigate();
+  const { data: rawNotifs = [], isLoading, isError, error, refetch } = useNotifications();
+  const { data: serverUnreadCount } = useUnreadNotifications();
+  const markAsReadMutation = useMarkNotificationAsRead();
+
   const [filter, setFilter] = useState<FilterId>("all");
   const [query, setQuery] = useState("");
+  const [localStars, setLocalStars] = useState<Record<string, boolean>>({});
+  const [localRemoved, setLocalRemoved] = useState<Set<string>>(new Set());
 
-  const unread = items.filter((n) => !n.read).length;
+  // Normalise backend notifications with fallback
+  const items = useMemo<Notification[]>(() => {
+    const list = rawNotifs.length > 0
+      ? rawNotifs.map((n, i) => normaliseNotification(n, i))
+      : DEFAULT_NOTIFS;
+
+    return list
+      .filter((n) => !localRemoved.has(n.id))
+      .map((n) => (localStars[n.id] !== undefined ? { ...n, starred: localStars[n.id] } : n));
+  }, [rawNotifs, localRemoved, localStars]);
+
+  const unreadCount = serverUnreadCount ?? items.filter((n) => !n.read).length;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -325,16 +389,42 @@ function NotificationsPage() {
     .filter((g) => g.list.length > 0);
 
   function markAllRead() {
-    setItems((xs) => xs.map((n) => ({ ...n, read: true })));
+    items.filter((n) => !n.read).forEach((n) => {
+      markAsReadMutation.mutate(n.id);
+    });
   }
+
   function toggleRead(id: string) {
-    setItems((xs) => xs.map((n) => (n.id === id ? { ...n, read: !n.read } : n)));
+    const item = items.find((n) => n.id === id);
+    if (item && !item.read) {
+      markAsReadMutation.mutate(id);
+    }
   }
+
   function toggleStar(id: string) {
-    setItems((xs) => xs.map((n) => (n.id === id ? { ...n, starred: !n.starred } : n)));
+    setLocalStars((prev) => ({ ...prev, [id]: !prev[id] }));
   }
+
   function remove(id: string) {
-    setItems((xs) => xs.filter((n) => n.id !== id));
+    setLocalRemoved((prev) => new Set(prev).add(id));
+  }
+
+  function handleCardClick(n: Notification) {
+    if (!n.read) {
+      markAsReadMutation.mutate(n.id);
+    }
+
+    if (n.entityRef?.taskId) {
+      navigate({ to: "/tasks" });
+    } else if (n.entityRef?.projectId) {
+      navigate({ to: "/projects" });
+    } else if (n.entityRef?.url) {
+      if (n.entityRef.url.startsWith("/")) {
+        navigate({ to: n.entityRef.url as any });
+      } else {
+        window.open(n.entityRef.url, "_blank");
+      }
+    }
   }
 
   return (
@@ -350,9 +440,9 @@ function NotificationsPage() {
           <div className="flex items-start gap-4">
             <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent text-white shadow-lg shadow-primary/25">
               <Bell className="h-5 w-5" />
-              {unread > 0 ? (
+              {unreadCount > 0 ? (
                 <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-background">
-                  {unread}
+                  {unreadCount}
                 </span>
               ) : null}
             </div>
@@ -361,10 +451,10 @@ function NotificationsPage() {
                 <h1 className="text-3xl font-semibold tracking-tight sm:text-[32px]">
                   Notifications
                 </h1>
-                {unread > 0 ? (
+                {unreadCount > 0 ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
                     <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                    {unread} unread
+                    {unreadCount} unread
                   </span>
                 ) : null}
               </div>
@@ -391,10 +481,14 @@ function NotificationsPage() {
             </button>
             <button
               onClick={markAllRead}
-              disabled={unread === 0}
+              disabled={unreadCount === 0 || markAsReadMutation.isPending}
               className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-accent px-3.5 py-1.5 text-sm font-semibold text-white shadow-md shadow-primary/25 transition hover:shadow-primary/40 disabled:opacity-40 disabled:shadow-none"
             >
-              <CheckCheck className="h-3.5 w-3.5" />
+              {markAsReadMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CheckCheck className="h-3.5 w-3.5" />
+              )}
               Mark all as read
             </button>
             <button className="rounded-lg border border-border/70 bg-surface p-2 text-muted-foreground hover:border-primary/40 hover:text-foreground">
@@ -403,6 +497,22 @@ function NotificationsPage() {
           </div>
         </header>
 
+        {/* Error banner */}
+        {isError && (
+          <div className="mt-6 flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error instanceof Error ? error.message : "Failed to load notifications."}</span>
+            </div>
+            <button
+              onClick={() => refetch()}
+              className="flex items-center gap-1 rounded-md bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+            >
+              <RefreshCw className="h-3 w-3" /> Retry
+            </button>
+          </div>
+        )}
+
         {/* filter chips */}
         <div className="mt-6 flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/70 bg-surface/70 p-1.5 backdrop-blur">
           {FILTERS.map((f) => {
@@ -410,7 +520,7 @@ function NotificationsPage() {
               f.id === "all"
                 ? items.length
                 : f.id === "unread"
-                  ? unread
+                  ? unreadCount
                   : f.id === "starred"
                     ? items.filter((n) => n.starred).length
                     : items.filter((n) => n.kind === f.id).length;
@@ -442,7 +552,9 @@ function NotificationsPage() {
 
         {/* groups */}
         <section className="mt-8 space-y-8">
-          {byGroup.length === 0 ? (
+          {isLoading ? (
+            <NotificationSkeleton />
+          ) : byGroup.length === 0 ? (
             <EmptyState />
           ) : (
             byGroup.map((g) => (
@@ -453,6 +565,7 @@ function NotificationsPage() {
                 onToggleRead={toggleRead}
                 onToggleStar={toggleStar}
                 onRemove={remove}
+                onCardClick={handleCardClick}
               />
             ))
           )}
@@ -473,6 +586,24 @@ function NotificationsPage() {
   );
 }
 
+/* --------------------------- skeleton --------------------------- */
+
+function NotificationSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="h-20 rounded-2xl border border-border/60 bg-surface p-4 animate-pulse flex items-center gap-4">
+          <div className="h-10 w-10 rounded-full bg-secondary/80 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3.5 w-1/3 rounded bg-secondary/80" />
+            <div className="h-3 w-2/3 rounded bg-secondary/60" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* --------------------------- group section --------------------------- */
 
 function GroupSection({
@@ -481,12 +612,14 @@ function GroupSection({
   onToggleRead,
   onToggleStar,
   onRemove,
+  onCardClick,
 }: {
   group: Group;
   list: Notification[];
   onToggleRead: (id: string) => void;
   onToggleStar: (id: string) => void;
   onRemove: (id: string) => void;
+  onCardClick: (n: Notification) => void;
 }) {
   const unread = list.filter((n) => !n.read).length;
   return (
@@ -514,6 +647,7 @@ function GroupSection({
             onToggleRead={onToggleRead}
             onToggleStar={onToggleStar}
             onRemove={onRemove}
+            onCardClick={onCardClick}
           />
         ))}
       </ul>
@@ -528,11 +662,13 @@ function NotificationCard({
   onToggleRead,
   onToggleStar,
   onRemove,
+  onCardClick,
 }: {
   n: Notification;
   onToggleRead: (id: string) => void;
   onToggleStar: (id: string) => void;
   onRemove: (id: string) => void;
+  onCardClick: (n: Notification) => void;
 }) {
   const meta = KIND_META[n.kind];
   const Icon = meta.icon;
@@ -540,7 +676,8 @@ function NotificationCard({
 
   return (
     <li
-      className={`group relative overflow-hidden rounded-2xl border transition ${
+      onClick={() => onCardClick(n)}
+      className={`group relative cursor-pointer overflow-hidden rounded-2xl border transition ${
         n.read
           ? "border-border/60 bg-surface"
           : "border-primary/30 bg-gradient-to-r from-primary/[0.04] to-accent/[0.04] shadow-sm"
@@ -596,13 +733,24 @@ function NotificationCard({
                 <span className="text-[11px] text-muted-foreground">{n.time}</span>
 
                 {n.actions?.primary ? (
-                  <button className="ml-1 inline-flex items-center gap-1 rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-background transition hover:opacity-90">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCardClick(n);
+                    }}
+                    className="ml-1 inline-flex items-center gap-1 rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-background transition hover:opacity-90"
+                  >
                     {n.actions.primary}
                     <ArrowUpRight className="h-3 w-3" />
                   </button>
                 ) : null}
                 {n.actions?.secondary ? (
-                  <button className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium hover:border-primary/40"
+                  >
                     {n.actions.secondary}
                   </button>
                 ) : null}
@@ -610,7 +758,7 @@ function NotificationCard({
             </div>
 
             {/* row actions */}
-            <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+            <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
               <IconAction
                 title={n.starred ? "Unstar" : "Star"}
                 onClick={() => onToggleStar(n.id)}
@@ -627,7 +775,7 @@ function NotificationCard({
               >
                 <CheckCheck className="h-3.5 w-3.5" />
               </IconAction>
-              <IconAction title="Archive">
+              <IconAction title="Archive" onClick={() => onRemove(n.id)}>
                 <Archive className="h-3.5 w-3.5" />
               </IconAction>
               <IconAction title="Delete" onClick={() => onRemove(n.id)}>
@@ -656,7 +804,10 @@ function IconAction({
   return (
     <button
       title={title}
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
     >
       {children}

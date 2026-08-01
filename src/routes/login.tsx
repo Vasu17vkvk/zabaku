@@ -1,6 +1,7 @@
 import zabakuLogo from "@/assets/zabaku-logo.png.asset.json";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { api } from "@/lib/api";
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Check, Sparkles, Bot,
   CheckCircle2, TrendingUp, Kanban, Circle,
@@ -208,9 +209,46 @@ function IllustrationStack() {
 }
 
 /* ============ RIGHT — login card ============ */
+interface LoginResponse {
+  success: boolean;
+  message: string;
+  data: {
+    user: Record<string, unknown>;
+    token: string;
+  };
+}
+
 function RightPanel() {
+  const router = useRouter();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+    try {
+      const res = await api<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: { email, password },
+      });
+      localStorage.setItem("zabaku_token", res.data.token);
+      router.navigate({ to: "/dashboard" });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Sign in failed. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
     <section className="relative flex items-center justify-center overflow-hidden p-6 sm:p-10">
@@ -258,7 +296,7 @@ function RightPanel() {
           </div>
 
           {/* form */}
-          <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <Field
               id="email"
               label="Email"
@@ -266,6 +304,8 @@ function RightPanel() {
               type="email"
               placeholder="you@company.com"
               autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
 
             <div>
@@ -282,6 +322,8 @@ function RightPanel() {
                   type={showPw ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="••••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="h-11 w-full rounded-xl border border-border bg-surface pl-10 pr-11 text-[13.5px] text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-4 focus:ring-primary/15"
                 />
                 <button
@@ -312,13 +354,21 @@ function RightPanel() {
               <span className="text-[12.5px] text-foreground/90">Remember me for 30 days</span>
             </label>
 
+            {/* error message */}
+            {error && (
+              <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] font-medium text-destructive">
+                {error}
+              </p>
+            )}
+
             {/* submit */}
             <button
               type="submit"
-              className="group mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-3 text-[14px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.99]"
+              disabled={isLoading}
+              className="group mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-3 text-[14px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
             >
-              Sign in
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              {isLoading ? "Signing in…" : "Sign in"}
+              {!isLoading && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
             </button>
           </form>
 
@@ -343,9 +393,16 @@ function RightPanel() {
 }
 
 function Field({
-  id, label, icon, type = "text", placeholder, autoComplete,
+  id, label, icon, type = "text", placeholder, autoComplete, value, onChange,
 }: {
-  id: string; label: string; icon: React.ReactNode; type?: string; placeholder?: string; autoComplete?: string;
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  type?: string;
+  placeholder?: string;
+  autoComplete?: string;
+  value?: string;
+  onChange?: React.ChangeEventHandler<HTMLInputElement>;
 }) {
   return (
     <div>
@@ -359,6 +416,8 @@ function Field({
           type={type}
           autoComplete={autoComplete}
           placeholder={placeholder}
+          value={value}
+          onChange={onChange}
           className="h-11 w-full rounded-xl border border-border bg-surface pl-10 pr-4 text-[13.5px] text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-4 focus:ring-primary/15"
         />
       </div>
