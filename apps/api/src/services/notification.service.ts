@@ -1,10 +1,11 @@
 import { Notification } from "../models/Notification";
 import { CreateNotificationDto } from "../dtos/notification/CreateNotification.dto";
+import { getIO } from "../socket/socket";
 
 export async function createNotification(
     data: CreateNotificationDto
 ) {
-    return Notification.create({
+    const notification = await Notification.create({
         recipient: data.recipient,
         sender: data.sender,
         workspace: data.workspace,
@@ -17,8 +18,16 @@ export async function createNotification(
         entityType: data.entityType,
         entityId: data.entityId,
     });
-}
 
+    const io = getIO();
+
+    io.to(data.recipient).emit(
+        "notification:new",
+        notification
+    );
+
+    return notification;
+}
 export async function getNotifications(
     userId: string
 ) {
