@@ -7,6 +7,8 @@ import projectManagementRoutes from "./routes/projectManagement.routes";
 
 import dashboardRoutes from "./routes/dashboard.routes";
 
+import notificationRoutes from "./routes/notification.routes";
+
 const app = express();
 
 // Middleware
@@ -29,5 +31,6 @@ app.use("/projects", projectManagementRoutes);
 
 app.use("/dashboard", dashboardRoutes);
 
+app.use("/notifications", notificationRoutes);
 
 export default app;

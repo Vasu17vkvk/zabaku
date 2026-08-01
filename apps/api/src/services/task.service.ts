@@ -20,6 +20,9 @@ import { logActivity } from "./activity.service";
 
 import { GetTasksQueryDto } from "../dtos/task/GetTasksQuery.dto";
 
+import { createNotification } from "./notification.service";
+
+
 export async function createTask(
     projectId: string,
     currentUserId: string,
@@ -93,6 +96,25 @@ export async function createTask(
             title: task.title,
         },
     });
+
+    if (assignee) {
+        await createNotification({
+            recipient: assignee.toString(),
+            sender: currentUserId,
+
+            workspace: workspace._id.toString(),
+
+            type: "TASK_ASSIGNED",
+
+            title: "Task Assigned",
+
+            message: `You have been assigned "${task.title}"`,
+
+            entityType: "Task",
+
+            entityId: task._id.toString(),
+        });
+    }
 
     return task;
 }
@@ -248,6 +270,23 @@ export async function updateTask(
             },
         },
     });
+
+    if (data.assignee) {
+        await createNotification({
+            recipient: data.assignee,
+            sender: currentUserId,
+            workspace: workspace._id.toString(),
+
+            type: "TASK_ASSIGNED",
+
+            title: "Task Assigned",
+
+            message: `You have been assigned "${task.title}"`,
+
+            entityType: "Task",
+            entityId: task._id.toString(),
+        });
+    }
 
     return task;
 }
