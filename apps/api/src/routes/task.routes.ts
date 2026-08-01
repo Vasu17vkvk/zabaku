@@ -12,6 +12,8 @@ import { updateStatus } from "../controllers/task.controller";
 
 import commentRoutes from "./comment.routes";
 
+import activityRoutes from "./activity.routes";
+
 const router = Router({
     mergeParams: true,
 });
@@ -37,6 +39,11 @@ router.delete(
 router.use(
     "/:taskId/comments",
     commentRoutes
+);
+
+router.use(
+    "/:taskId/activity",
+    activityRoutes
 );
 
 export default router;

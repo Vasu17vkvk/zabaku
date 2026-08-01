@@ -1,22 +1,29 @@
 import { Activity } from "../models/Activity";
 import { CreateActivityDto } from "../dtos/activity/CreateActivity.dto";
 
-export async function logActivity(
-    data: CreateActivityDto
-) {
-    return Activity.create({
-        workspace: data.workspace,
-        project: data.project,
-        task: data.task,
-        user: data.user,
+export async function logActivity(data: CreateActivityDto) {
+    console.log("🔥 logActivity called");
+    console.log(data);
 
-        action: data.action,
+    try {
+        const activity = await Activity.create({
+            workspace: data.workspace,
+            project: data.project,
+            task: data.task,
+            user: data.user,
+            action: data.action,
+            entityType: data.entityType,
+            entityId: data.entityId,
+            metadata: data.metadata ?? {},
+        });
 
-        entityType: data.entityType,
-        entityId: data.entityId,
+        console.log("✅ Activity created:", activity);
 
-        metadata: data.metadata ?? {},
-    });
+        return activity;
+    } catch (error) {
+        console.error("❌ Activity error:", error);
+        throw error;
+    }
 }
 
 export async function getTaskActivity(
@@ -33,3 +40,4 @@ export async function getTaskActivity(
             createdAt: -1,
         });
 }
+
