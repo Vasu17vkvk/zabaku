@@ -5,6 +5,8 @@ import { errorMiddleware } from "./middleware/error.middleware";
 import workspaceRoutes from "./routes/workspace.routes";
 import projectManagementRoutes from "./routes/projectManagement.routes";
 
+import dashboardRoutes from "./routes/dashboard.routes";
+
 const app = express();
 
 // Middleware
@@ -24,6 +26,8 @@ app.use(errorMiddleware);
 app.use("/workspaces", workspaceRoutes);
 
 app.use("/projects", projectManagementRoutes);
+
+app.use("/dashboard", dashboardRoutes);
 
 
 export default app;

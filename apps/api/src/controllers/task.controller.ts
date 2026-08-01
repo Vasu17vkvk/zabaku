@@ -18,6 +18,8 @@ import { updateTaskStatusSchema } from "../validation/task.validation";
 
 import { deleteTask } from "../services/task.service";
 
+import { GetTasksQueryDto } from "../dtos/task/GetTasksQuery.dto";
+
 export const create = asyncHandler(async (req: Request, res: Response) => {
     const validatedData = createTaskSchema.parse(req.body);
 
@@ -37,9 +39,12 @@ export const create = asyncHandler(async (req: Request, res: Response) => {
 
 export const getAll = asyncHandler(
     async (req: Request, res: Response) => {
+        const query = req.query as GetTasksQueryDto;
+
         const tasks = await getTasks(
             req.params.projectId as string,
-            req.user!._id.toString()
+            req.user!._id.toString(),
+            query
         );
 
         return sendSuccess(

@@ -18,6 +18,8 @@ import { UpdateTaskStatusDto } from "../dtos/task/UpdateTaskStatus.dto";
 
 import { logActivity } from "./activity.service";
 
+import { GetTasksQueryDto } from "../dtos/task/GetTasksQuery.dto";
+
 export async function createTask(
     projectId: string,
     currentUserId: string,
@@ -96,7 +98,8 @@ export async function createTask(
 }
 export async function getTasks(
     projectId: string,
-    currentUserId: string
+    currentUserId: string,
+    query: GetTasksQueryDto
 ) {
     const project = await Project.findById(projectId);
 
@@ -120,11 +123,42 @@ export async function getTasks(
         ]
     );
 
-    return Task.find({
+    const filter: any = {
         project: projectId,
-    }).sort({
-        createdAt: -1,
-    });
+    };
+
+    if (query.status) {
+        filter.status = query.status;
+    }
+
+    if (query.priority) {
+        filter.priority = query.priority;
+    }
+
+    if (query.assignee) {
+        filter.assignee = query.assignee;
+    }
+
+    if (query.search) {
+        filter.title = {
+            $regex: query.search,
+            $options: "i",
+        };
+    }
+
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+
+    const skip = (page - 1) * limit;
+
+    const sortField = query.sort || "createdAt";
+
+    return Task.find(filter)
+        .sort({
+            [sortField]: -1,
+        })
+        .skip(skip)
+        .limit(limit);
 }
 
 export async function updateTask(
