@@ -79,16 +79,28 @@ export function useWorkspace(
 // Mutation: create workspace
 // ---------------------------------------------------------------------------
 
-export function useCreateWorkspace(): UseMutationResult<
-  Workspace,
-  Error,
-  CreateWorkspaceInput
-> {
+export function useCreateWorkspace() {
   const qc = useQueryClient();
+
   return useMutation({
     mutationFn: createWorkspace,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+
+    onSuccess: async (workspace) => {
+      // Refresh workspace list
+      await qc.invalidateQueries({
+        queryKey: WORKSPACES_KEY,
+      });
+
+      // Make the new workspace active
+      persistWorkspaceId(workspace.id);
+
+      // Refresh all workspace-dependent data
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+        qc.invalidateQueries({ queryKey: ["projects"] }),
+        qc.invalidateQueries({ queryKey: ["tasks"] }),
+        qc.invalidateQueries({ queryKey: ["notifications"] }),
+      ]);
     },
   });
 }
