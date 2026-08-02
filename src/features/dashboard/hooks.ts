@@ -7,6 +7,8 @@ import { getDashboard, type ApiDashboardData } from "./api";
 
 export const dashboardKeys = {
   all: ["dashboard"] as const,
+  workspace: (workspaceId?: string | null) =>
+    workspaceId ? (["dashboard", workspaceId] as const) : (["dashboard"] as const),
 };
 
 // ---------------------------------------------------------------------------
@@ -14,10 +16,12 @@ export const dashboardKeys = {
 // ---------------------------------------------------------------------------
 
 /** Fetch dashboard overview metrics. */
-export function useDashboard(): UseQueryResult<ApiDashboardData> {
+export function useDashboard(
+  workspaceId?: string | null
+): UseQueryResult<ApiDashboardData> {
   return useQuery({
-    queryKey: dashboardKeys.all,
-    queryFn: getDashboard,
+    queryKey: dashboardKeys.workspace(workspaceId),
+    queryFn: () => getDashboard(workspaceId),
     staleTime: 15_000,
   });
 }

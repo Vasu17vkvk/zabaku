@@ -9,7 +9,7 @@ import {
   Users, Clock, Star, FolderKanban, Loader2,
 } from "lucide-react";
 import { useProjects, useDeleteProject, getPersistedProjectId, persistProjectId } from "@/features/projects/hooks";
-import { getPersistedWorkspaceId } from "@/features/workspaces/hooks";
+import { useWorkspaceContext } from "@/context/WorkspaceContext";
 import type { ApiProject, ApiStatus, ApiPriority } from "@/features/projects/api";
 
 export const Route = createFileRoute("/projects")({
@@ -137,7 +137,7 @@ const STATUSES: Status[] = ["On track", "At risk", "Blocked", "In review", "Ship
 
 /* ============ page ============ */
 function ProjectsPage() {
-  const workspaceId = getPersistedWorkspaceId();
+  const { workspaceId } = useWorkspaceContext();
 
   const { data: rawProjects = [], isLoading, isError, error } = useProjects(workspaceId);
   const deleteProject = useDeleteProject(workspaceId);

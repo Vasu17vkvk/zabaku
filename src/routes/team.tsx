@@ -33,7 +33,7 @@ import {
 
 import { requireAuth } from "@/lib/requireAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { useWorkspaces, getPersistedWorkspaceId } from "@/features/workspaces/hooks";
+import { useWorkspaceContext } from "@/context/WorkspaceContext";
 import {
   useMembers,
   useInviteMember,
@@ -412,10 +412,7 @@ function RoleBadge({ role }: { role: Role }) {
 type Tab = "members" | "invites" | "permissions";
 
 function TeamPage() {
-  const { data: workspaces = [] } = useWorkspaces();
-  const activeWorkspaceId = getPersistedWorkspaceId();
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
-  const workspaceId = activeWorkspace?.id ?? null;
+  const { workspace, workspaceId } = useWorkspaceContext();
 
   const { data: rawMembers = [], isLoading, isError, error, refetch } = useMembers(workspaceId);
   const updateRoleMutation = useUpdateMemberRole(workspaceId);
@@ -483,7 +480,7 @@ function TeamPage() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>Workspace</span>
               <span>·</span>
-              <span className="text-foreground/70">{activeWorkspace?.name ?? "Northwind"}</span>
+              <span className="text-foreground/70">{workspace?.name ?? "Northwind"}</span>
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
               Team

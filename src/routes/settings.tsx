@@ -2,12 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useWorkspaces,
   useUpdateWorkspace,
   useDeleteWorkspace,
-  getPersistedWorkspaceId,
-  persistWorkspaceId,
 } from "@/features/workspaces/hooks";
+import { useWorkspaceContext } from "@/context/WorkspaceContext";
 import {
   useProfile,
   useUpdateProfile,
@@ -710,12 +708,9 @@ function NotificationsSection() {
 }
 
 function WorkspaceSection() {
-  const { data: workspaces = [], isLoading, isError, error } = useWorkspaces();
+  const { workspaces, workspace: active, workspaceId: activeId, setWorkspace, isLoading } = useWorkspaceContext();
   const updateWorkspace = useUpdateWorkspace();
   const deleteWorkspace = useDeleteWorkspace();
-
-  const [activeId, setActiveId] = useState<string>(() => getPersistedWorkspaceId() ?? "");
-  const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -728,10 +723,6 @@ function WorkspaceSection() {
       setSlug(active.slug ?? "");
       setIndustry((active.industry as string) ?? "saas");
       setTeamSize((active.teamSize as string) ?? "11-50");
-      if (!activeId || activeId !== active.id) {
-        setActiveId(active.id);
-        persistWorkspaceId(active.id);
-      }
     }
   }, [active]);
 
@@ -751,11 +742,11 @@ function WorkspaceSection() {
     );
   }
 
-  if (isError || !active) {
+  if (!active) {
     return (
       <Panel title="Workspace">
         <div className="py-12 text-center text-sm text-muted-foreground">
-          {error instanceof Error ? error.message : "No workspaces found."}
+          No workspaces found.
         </div>
       </Panel>
     );

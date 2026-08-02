@@ -2,21 +2,23 @@ import zabakuLogo from "@/assets/zabaku-logo.png.asset.json";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { requireAuth } from "@/lib/requireAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   LayoutDashboard, FolderKanban, CheckSquare, Users, Sparkles, BarChart3,
   Bell, User, Settings, Search, Command, ChevronDown, Plus, ArrowUpRight,
   ArrowDownRight, MoreHorizontal, Circle, CheckCircle2, Clock, GitBranch,
   MessageSquare, Zap, Send, Filter, Calendar as CalendarIcon, ChevronLeft,
   ChevronRight, TrendingUp, Bot, PlayCircle, FileText, Rocket, Inbox,
-  Kanban, HelpCircle, RefreshCw, AlertCircle, Loader2,
+  Kanban, HelpCircle, RefreshCw, AlertCircle, Loader2, Check, Flag, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useWorkspaces, getPersistedWorkspaceId } from "@/features/workspaces/hooks";
+import { useWorkspace } from "@/hooks/useWorkspace";
 import { useProjects } from "@/features/projects/hooks";
 import { useDashboard } from "@/features/dashboard/hooks";
+import { useMembers } from "@/features/team/hooks";
 import { useUnreadNotifications } from "@/features/notifications/hooks";
-import type { ApiDashboardData, ApiDashboardRecentProject } from "@/features/dashboard/api";
+import type { ApiDashboardData, ApiDashboardRecentProject, ApiDashboardRecentTask, ApiDashboardActivityItem } from "@/features/dashboard/api";
+import type { ApiProject } from "@/features/projects/api";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -34,94 +36,88 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 function DashboardPage() {
-  const { data: dashboard, isLoading, isError, error, refetch } = useDashboard();
   const { user } = useAuth();
-  const { data: workspaces = [] } = useWorkspaces();
-  const activeWorkspaceId = getPersistedWorkspaceId();
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
-  const { data: rawProjects = [] } = useProjects(activeWorkspace?.id ?? null);
+  const { workspace, workspaceId } = useWorkspace();
 
-  const userName = user?.name ?? "Jules";
+  const dashboardQuery = useDashboard(workspaceId);
+  const projectsQuery = useProjects(workspaceId);
+  const membersQuery = useMembers(workspaceId);
+
+  const userName = user?.name ?? "User";
   const firstName = userName.split(" ")[0];
-  const workspaceName = activeWorkspace?.name ?? "Northwind";
+  const workspaceName = workspace?.name ?? "Workspace";
 
   return (
     <div className="min-h-screen bg-[oklch(0.985_0.005_265)] text-foreground">
       <div className="flex min-h-screen">
-        <Sidebar activeWorkspace={activeWorkspace} user={user} />
+        <Sidebar user={user} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar user={user} />
           <main className="min-w-0 flex-1 px-6 py-6 lg:px-10 lg:py-8">
             <PageHeader firstName={firstName} workspaceName={workspaceName} />
 
-            {/* Error Banner */}
-            {isError && (
-              <div className="mt-4 flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
-                <div className="flex items-center gap-2 font-medium">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{error instanceof Error ? error.message : "Failed to load dashboard data."}</span>
-                </div>
-                <button
-                  onClick={() => refetch()}
-                  className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
-                >
-                  <RefreshCw className="h-3 w-3" /> Retry
-                </button>
+            {/* Stat Cards Widget */}
+            <StatCards
+              dashboard={dashboardQuery.data}
+              isLoading={dashboardQuery.isLoading || membersQuery.isLoading}
+              isError={dashboardQuery.isError || membersQuery.isError}
+              error={dashboardQuery.error ?? membersQuery.error}
+              onRetry={() => {
+                dashboardQuery.refetch();
+                membersQuery.refetch();
+              }}
+              membersCount={membersQuery.data?.length ?? 0}
+              projectsCount={projectsQuery.data?.length ?? 0}
+            />
+
+            <div className="mt-6 grid grid-cols-12 gap-6">
+              <div className="col-span-12 xl:col-span-8 space-y-6">
+                {/* Velocity Chart / Analytics */}
+                <VelocityChart
+                  velocity={dashboardQuery.data?.velocity}
+                  isLoading={dashboardQuery.isLoading}
+                  isError={dashboardQuery.isError}
+                  error={dashboardQuery.error}
+                  onRetry={() => dashboardQuery.refetch()}
+                />
+
+                {/* Active Projects Table */}
+                <ProjectsTable
+                  dashboardProjects={dashboardQuery.data?.recentProjects}
+                  rawProjects={projectsQuery.data}
+                  isLoading={projectsQuery.isLoading || dashboardQuery.isLoading}
+                  isError={projectsQuery.isError}
+                  error={projectsQuery.error}
+                  onRetry={() => projectsQuery.refetch()}
+                />
+
+                {/* Upcoming Tasks Widget */}
+                <UpcomingTasksWidget
+                  recentTasks={dashboardQuery.data?.recentTasks}
+                  isLoading={dashboardQuery.isLoading}
+                  isError={dashboardQuery.isError}
+                  error={dashboardQuery.error}
+                  onRetry={() => dashboardQuery.refetch()}
+                />
+
+                {/* Activity Feed */}
+                <ActivityFeed
+                  dashboardActivity={dashboardQuery.data?.recentActivity}
+                  isLoading={dashboardQuery.isLoading}
+                  isError={dashboardQuery.isError}
+                  error={dashboardQuery.error}
+                  onRetry={() => dashboardQuery.refetch()}
+                />
               </div>
-            )}
 
-            {/* Skeleton Loading State */}
-            {isLoading ? (
-              <DashboardSkeleton />
-            ) : (
-              <>
-                <StatCards dashboard={dashboard} projectsCount={rawProjects.length} />
-                <div className="mt-6 grid grid-cols-12 gap-6">
-                  <div className="col-span-12 xl:col-span-8 space-y-6">
-                    <VelocityChart velocity={dashboard?.velocity} />
-                    <ProjectsTable dashboardProjects={dashboard?.recentProjects} rawProjects={rawProjects} />
-                    <ActivityFeed dashboardActivity={dashboard?.recentActivity} />
-                  </div>
-                  <div className="col-span-12 xl:col-span-4 space-y-6">
-                    <AiAssistant firstName={firstName} />
-                    <QuickActions />
-                    <CalendarCard />
-                    <NotificationsCard />
-                  </div>
-                </div>
-              </>
-            )}
+              <div className="col-span-12 xl:col-span-4 space-y-6">
+                <AiAssistant firstName={firstName} />
+                <QuickActions />
+                <CalendarCard />
+                <NotificationsCard />
+              </div>
+            </div>
           </main>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================== SKELETON =========================== */
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-6 mt-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-28 rounded-xl border border-border/70 bg-white p-4 shadow-xs animate-pulse">
-            <div className="h-3 w-20 rounded bg-secondary/80" />
-            <div className="mt-4 h-8 w-16 rounded bg-secondary/60" />
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-8 space-y-6">
-          <div className="h-64 rounded-xl border border-border/70 bg-white p-5 animate-pulse">
-            <div className="h-4 w-32 rounded bg-secondary/80" />
-          </div>
-          <div className="h-64 rounded-xl border border-border/70 bg-white p-5 animate-pulse">
-            <div className="h-4 w-32 rounded bg-secondary/80" />
-          </div>
-        </div>
-        <div className="col-span-12 xl:col-span-4 space-y-6">
-          <div className="h-48 rounded-xl border border-border/70 bg-white p-5 animate-pulse" />
-          <div className="h-48 rounded-xl border border-border/70 bg-white p-5 animate-pulse" />
         </div>
       </div>
     </div>
@@ -135,7 +131,90 @@ function LogoMark({ size = 26 }: { size?: number }) {
   );
 }
 
-function Sidebar({ activeWorkspace, user }: { activeWorkspace?: { name: string; slug?: string }; user?: { name?: string } | null }) {
+function WorkspaceSwitcher() {
+  const { workspace, workspaces, workspaceId, setWorkspace, isLoading } = useWorkspace();
+  const [open, setOpen] = useState(false);
+
+  const wsName = workspace?.name ?? "Select Workspace";
+  const wsInitial = wsName.charAt(0).toUpperCase();
+
+  return (
+    <div className="relative px-3 pt-4">
+      <button
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="Switch Workspace"
+        className="flex w-full items-center gap-2.5 rounded-lg border border-border/70 bg-surface px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary/20"
+      >
+        <span
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[10px] font-bold text-white shadow-xs"
+          style={{ background: "oklch(0.55 0.22 279)" }}
+        >
+          {wsInitial}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[12px] font-semibold text-foreground">{wsName}</p>
+          <p className="truncate text-[10.5px] text-muted-foreground">Pro workspace</p>
+        </div>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute left-3 right-3 top-full z-50 mt-1.5 max-h-60 overflow-y-auto rounded-xl border border-border/70 bg-white p-1.5 shadow-lg animate-in fade-in zoom-in-95">
+            <div className="mb-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Workspaces ({workspaces.length})
+            </div>
+            {isLoading ? (
+              <div className="px-2 py-3 text-center text-[11.5px] text-muted-foreground">Loading…</div>
+            ) : workspaces.length === 0 ? (
+              <div className="px-2 py-3 text-center text-[11.5px] text-muted-foreground">No workspaces found</div>
+            ) : (
+              workspaces.map((ws) => {
+                const active = ws.id === workspaceId;
+                const init = (ws.name ?? "W").charAt(0).toUpperCase();
+                return (
+                  <button
+                    key={ws.id}
+                    onClick={() => {
+                      setWorkspace(ws.id);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium transition-colors ${
+                      active
+                        ? "bg-primary/10 text-primary font-semibold"
+                        : "text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <span className="grid h-5 w-5 shrink-0 place-items-center rounded text-[9.5px] font-bold text-white bg-primary">
+                      {init}
+                    </span>
+                    <span className="truncate flex-1">{ws.name}</span>
+                    {active && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+            <div className="mt-1 border-t border-border/60 pt-1">
+              <Link
+                to="/settings"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <Settings className="h-3 w-3" /> Manage workspaces
+              </Link>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Sidebar({ user }: { user?: { name?: string } | null }) {
   const nav = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard", active: true, badge: null },
     { icon: FolderKanban, label: "Projects", href: "/projects", active: false, badge: null },
@@ -150,9 +229,6 @@ function Sidebar({ activeWorkspace, user }: { activeWorkspace?: { name: string; 
     { icon: Settings, label: "Settings", href: "/settings" },
   ];
 
-  const wsName = activeWorkspace?.name ?? "Northwind";
-  const wsInitial = wsName.charAt(0).toUpperCase();
-
   return (
     <aside className="hidden w-[248px] shrink-0 flex-col border-r border-border/70 bg-white/60 backdrop-blur-xl lg:flex">
       {/* brand */}
@@ -165,16 +241,7 @@ function Sidebar({ activeWorkspace, user }: { activeWorkspace?: { name: string; 
       </div>
 
       {/* Workspace switcher pill */}
-      <div className="px-3 pt-4">
-        <Link to="/settings" className="flex w-full items-center gap-2.5 rounded-lg border border-border/70 bg-surface px-2.5 py-2 text-left shadow-xs transition-colors hover:bg-secondary">
-          <span className="grid h-6 w-6 place-items-center rounded-md text-[10px] font-bold text-white shadow-xs" style={{ background: "oklch(0.55 0.22 279)" }}>{wsInitial}</span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[12px] font-semibold text-foreground">{wsName}</p>
-            <p className="truncate text-[10.5px] text-muted-foreground">Pro workspace</p>
-          </div>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        </Link>
-      </div>
+      <WorkspaceSwitcher />
 
       {/* Nav */}
       <nav className="mt-4 flex-1 overflow-y-auto px-3">
@@ -206,22 +273,25 @@ function Sidebar({ activeWorkspace, user }: { activeWorkspace?: { name: string; 
           ))}
         </ul>
 
-        <p className="mt-6 mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Account</p>
+        <p className="mb-1.5 mt-6 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Account</p>
         <ul className="space-y-0.5">
           {account.map((item) => (
             <li key={item.label}>
-              <Link to={item.href} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground">
+              <Link
+                to={item.href}
+                className="group flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-all hover:bg-secondary/60 hover:text-foreground"
+              >
                 <item.icon className="h-4 w-4" />
-                {item.label}
+                <span>{item.label}</span>
               </Link>
             </li>
           ))}
         </ul>
       </nav>
 
-      {/* Upgrade card */}
+      {/* Upgrade Banner */}
       <div className="p-3">
-        <div className="relative overflow-hidden rounded-xl border border-border/70 bg-gradient-to-br from-white to-secondary/60 p-3.5">
+        <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 via-accent/5 to-surface p-3.5 shadow-xs">
           <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-primary/20 blur-2xl" />
           <div className="flex items-center gap-2">
             <span className="grid h-6 w-6 place-items-center rounded-md bg-gradient-primary text-white shadow-glow">
@@ -324,55 +394,91 @@ function PageHeader({ firstName, workspaceName }: { firstName: string; workspace
 /* =========================== STAT CARDS =========================== */
 function StatCards({
   dashboard,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  membersCount,
   projectsCount,
 }: {
   dashboard?: ApiDashboardData;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  onRetry: () => void;
+  membersCount: number;
   projectsCount: number;
 }) {
-  const totalWorkspaces = dashboard?.totalWorkspaces ?? 1;
-  const totalProjects = dashboard?.totalProjects ?? projectsCount;
-  const totalTasks = dashboard?.totalTasks ?? 0;
+  if (isLoading) {
+    return (
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-28 rounded-xl border border-border/70 bg-white p-4 shadow-xs animate-pulse">
+            <div className="h-3 w-20 rounded bg-secondary/80" />
+            <div className="mt-4 h-8 w-16 rounded bg-secondary/60" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mt-6 flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+        <div className="flex items-center gap-2 font-medium">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{error?.message ?? "Failed to load workspace summary statistics."}</span>
+        </div>
+        <button
+          onClick={onRetry}
+          className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+        >
+          <RefreshCw className="h-3 w-3" /> Retry
+        </button>
+      </div>
+    );
+  }
+
+  const totalProjects = typeof dashboard?.totalProjects === "number" ? dashboard.totalProjects : projectsCount;
+  const totalTasks = typeof dashboard?.totalTasks === "number" ? dashboard.totalTasks : 0;
   const completedTasks =
-    dashboard?.completedTasks ?? dashboard?.shippedTasks ?? dashboard?.tasksByStatus?.done ?? 0;
-  const completionRate =
-    dashboard?.completionRate ?? (totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0);
+    typeof dashboard?.completedTasks === "number"
+      ? dashboard.completedTasks
+      : typeof dashboard?.shippedTasks === "number"
+      ? dashboard.shippedTasks
+      : typeof dashboard?.tasksByStatus?.done === "number"
+      ? dashboard.tasksByStatus.done
+      : 0;
+  const totalMembers = typeof dashboard?.membersCount === "number" ? dashboard.membersCount : membersCount;
 
   const cards = [
     {
-      label: "Workspaces",
-      value: String(totalWorkspaces),
-      delta: "+1",
-      up: true,
-      hint: "active workspace",
-      spark: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-      color: "oklch(0.68 0.16 320)",
-    },
-    {
-      label: "Projects",
+      label: "Total Projects",
       value: String(totalProjects),
-      delta: "+3",
-      up: true,
       hint: "in flight",
-      spark: [8, 10, 12, 11, 14, 16, 18, 20, 22, Math.max(1, totalProjects)],
+      spark: [1, 2, 4, 6, 8, 10, Math.max(1, totalProjects)],
       color: "oklch(0.55 0.22 279)",
     },
     {
-      label: "Tasks",
+      label: "Total Tasks",
       value: String(totalTasks),
-      delta: "+18",
-      up: true,
       hint: `${dashboard?.tasksByStatus?.in_progress ?? 0} in progress`,
-      spark: [10, 15, 25, 30, 45, 60, 75, 90, 110, Math.max(1, totalTasks)],
+      spark: [2, 5, 10, 20, 35, 50, Math.max(1, totalTasks)],
       color: "oklch(0.72 0.16 180)",
     },
     {
-      label: "Completed",
+      label: "Completed Tasks",
       value: String(completedTasks),
-      delta: `${completionRate}%`,
-      up: true,
-      hint: "completion rate",
-      spark: [5, 10, 15, 20, 30, 45, 60, 80, 100, Math.max(1, completedTasks)],
+      hint: `${totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0}% completion rate`,
+      spark: [1, 3, 6, 12, 24, Math.max(1, completedTasks)],
       color: "oklch(0.68 0.16 155)",
+    },
+    {
+      label: "Team Members",
+      value: String(totalMembers),
+      hint: "active teammates",
+      spark: [1, 1, 2, 2, Math.max(1, totalMembers)],
+      color: "oklch(0.68 0.16 320)",
     },
   ];
 
@@ -389,15 +495,7 @@ function StatCards({
           <div className="mt-2 flex items-end justify-between gap-3">
             <div>
               <p className="text-[26px] font-semibold tracking-[-0.02em] text-foreground tabular-nums">{c.value}</p>
-              <div className="mt-1 flex items-center gap-1.5">
-                <span className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold ${
-                  c.up ? "bg-success/12 text-success" : "bg-danger/12 text-danger"
-                }`}>
-                  {c.up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                  {c.delta}
-                </span>
-                <span className="text-[10.5px] text-muted-foreground">{c.hint}</span>
-              </div>
+              <p className="mt-1 text-[10.5px] text-muted-foreground">{c.hint}</p>
             </div>
             <Sparkline data={c.spark} color={c.color} />
           </div>
@@ -433,12 +531,72 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 }
 
 /* =========================== VELOCITY CHART =========================== */
-function VelocityChart({ velocity }: { velocity?: ApiDashboardData["velocity"] }) {
-  const weeks = velocity?.weeks ?? ["W1","W2","W3","W4","W5","W6","W7","W8","W9","W10","W11","W12"];
-  const planned = velocity?.planned ?? [22, 28, 30, 26, 34, 38, 36, 42, 45, 48, 52, 58];
-  const shipped = velocity?.shipped ?? [18, 24, 26, 24, 30, 32, 34, 40, 42, 44, 50, 55];
+function VelocityChart({
+  velocity,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+}: {
+  velocity?: ApiDashboardData["velocity"];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  onRetry: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <section className="h-64 rounded-xl border border-border/70 bg-white p-5 shadow-xs animate-pulse">
+        <div className="h-4 w-32 rounded bg-secondary/80" />
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error?.message ?? "Failed to load velocity chart data."}</span>
+          </div>
+          <button
+            onClick={onRetry}
+            className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+          >
+            <RefreshCw className="h-3 w-3" /> Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  const weeks = velocity?.weeks ?? [];
+  const planned = velocity?.planned ?? [];
+  const shipped = velocity?.shipped ?? [];
+
+  if (weeks.length === 0 || (planned.length === 0 && shipped.length === 0)) {
+    return (
+      <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between border-b border-border/70 pb-3">
+          <div>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Project velocity</h2>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">Story points shipped vs. planned</p>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+          <BarChart3 className="h-8 w-8 text-muted-foreground/50" />
+          <p className="mt-2.5 text-[13px] font-medium text-foreground">No velocity data recorded</p>
+          <p className="mt-0.5 max-w-sm text-[11.5px] text-muted-foreground">
+            Velocity metrics will populate automatically as tasks and sprints are completed in this workspace.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   const w = 640, h = 220, pad = 28;
-  const max = Math.max(...planned, ...shipped, 64);
+  const max = Math.max(...planned, ...shipped, 10);
   const bw = (w - pad * 2) / Math.max(1, weeks.length);
 
   const line = (arr: number[]) =>
@@ -454,24 +612,22 @@ function VelocityChart({ velocity }: { velocity?: ApiDashboardData["velocity"] }
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Project velocity</h2>
-            <span className="rounded bg-success/12 px-1.5 py-0.5 text-[10.5px] font-semibold text-success">
-              +{velocity?.percentageChange ?? 23}%
-            </span>
+            {typeof velocity?.percentageChange === "number" && (
+              <span className="rounded bg-success/12 px-1.5 py-0.5 text-[10.5px] font-semibold text-success">
+                +{velocity.percentageChange}%
+              </span>
+            )}
           </div>
           <p className="mt-0.5 text-[12px] text-muted-foreground">Story points shipped vs. planned · last {weeks.length} weeks</p>
         </div>
         <div className="flex items-center gap-3 text-[11.5px]">
           <span className="flex items-center gap-1.5 text-muted-foreground"><span className="h-2 w-2 rounded-sm bg-primary/25 ring-1 ring-primary/40" /> Planned</span>
           <span className="flex items-center gap-1.5 text-foreground"><span className="h-2 w-2 rounded-full bg-primary" /> Shipped</span>
-          <button className="flex h-7 items-center gap-1 rounded-md border border-border/70 bg-surface px-2 text-[11px] font-medium text-muted-foreground hover:bg-secondary">
-            12w <ChevronDown className="h-3 w-3" />
-          </button>
         </div>
       </div>
 
       <div className="relative mt-4 w-full overflow-x-auto">
         <svg viewBox={`0 0 ${w} ${h}`} className="min-w-[520px] w-full">
-          {/* grid */}
           {[0, 1, 2, 3, 4].map((i) => {
             const y = pad + i * ((h - pad * 2) / 4);
             return (
@@ -481,14 +637,12 @@ function VelocityChart({ velocity }: { velocity?: ApiDashboardData["velocity"] }
               </g>
             );
           })}
-          {/* planned bars */}
           {planned.map((v, i) => {
             const x = pad + i * bw + bw * 0.18;
             const bh = (v / max) * (h - pad * 2);
             const y = h - pad - bh;
             return <rect key={i} x={x} y={y} width={bw * 0.64} height={bh} rx={3} fill="oklch(0.55 0.22 279 / 0.14)" stroke="oklch(0.55 0.22 279 / 0.35)" />;
           })}
-          {/* shipped line + area */}
           <defs>
             <linearGradient id="ship-grad" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="oklch(0.55 0.22 279)" stopOpacity="0.25" />
@@ -502,7 +656,6 @@ function VelocityChart({ velocity }: { velocity?: ApiDashboardData["velocity"] }
             const y = h - pad - (v / max) * (h - pad * 2);
             return <circle key={i} cx={x} cy={y} r="3" fill="white" stroke="oklch(0.55 0.22 279)" strokeWidth="1.5" />;
           })}
-          {/* x labels */}
           {weeks.map((wk, i) => (
             <text key={wk} x={pad + i * bw + bw / 2} y={h - 8} textAnchor="middle" fontSize="9.5" fill="oklch(0.55 0.02 265)">{wk}</text>
           ))}
@@ -516,19 +669,57 @@ function VelocityChart({ velocity }: { velocity?: ApiDashboardData["velocity"] }
 function ProjectsTable({
   dashboardProjects,
   rawProjects,
+  isLoading,
+  isError,
+  error,
+  onRetry,
 }: {
   dashboardProjects?: ApiDashboardRecentProject[];
-  rawProjects: any[];
+  rawProjects?: ApiProject[];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  onRetry: () => void;
 }) {
-  const DEFAULT_ROWS = [
-    { name: "Payments v2", key: "PAY-14", owner: "AK", ownerColor: "oklch(0.72 0.16 180)", status: "On track", statusTone: "success", progress: 78, due: "Aug 12" },
-    { name: "Onboarding revamp", key: "ONB-08", owner: "MB", ownerColor: "oklch(0.75 0.16 92)", status: "At risk", statusTone: "warning", progress: 42, due: "Jul 30" },
-    { name: "Mobile beta", key: "MOB-03", owner: "SR", ownerColor: "oklch(0.68 0.17 28)", status: "On track", statusTone: "success", progress: 61, due: "Sep 04" },
-    { name: "Design system 3.0", key: "DS-22", owner: "JL", ownerColor: "oklch(0.55 0.22 279)", status: "In review", statusTone: "info", progress: 92, due: "Jul 28" },
-    { name: "AI copilot rollout", key: "AI-01", owner: "PS", ownerColor: "oklch(0.62 0.19 30)", status: "Blocked", statusTone: "danger", progress: 28, due: "Aug 20" },
-  ];
+  if (isLoading) {
+    return (
+      <section className="h-64 rounded-xl border border-border/70 bg-white p-5 shadow-xs animate-pulse">
+        <div className="h-4 w-32 rounded bg-secondary/80" />
+      </section>
+    );
+  }
 
-  let rows = DEFAULT_ROWS;
+  if (isError) {
+    return (
+      <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error?.message ?? "Failed to load active projects."}</span>
+          </div>
+          <button
+            onClick={onRetry}
+            className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+          >
+            <RefreshCw className="h-3 w-3" /> Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  type Row = {
+    name: string;
+    key: string;
+    owner: string;
+    ownerColor: string;
+    status: string;
+    statusTone: string;
+    progress: number;
+    due: string;
+  };
+
+  let rows: Row[] = [];
 
   if (dashboardProjects && dashboardProjects.length > 0) {
     rows = dashboardProjects.map((p, i) => ({
@@ -542,16 +733,19 @@ function ProjectsTable({
       due: p.due ?? p.dueDate ?? "–",
     }));
   } else if (rawProjects && rawProjects.length > 0) {
-    rows = rawProjects.slice(0, 5).map((p: any, i: number) => ({
-      name: p.name,
-      key: p.key ?? `PRJ-${i + 1}`,
-      owner: p.members?.[0]?.initials ?? "AK",
-      ownerColor: p.color ?? "oklch(0.55 0.22 279)",
-      status: p.status ?? "On track",
-      statusTone: p.status === "At risk" ? "warning" : p.status === "Blocked" ? "danger" : p.status === "In review" ? "info" : "success",
-      progress: p.progress ?? 0,
-      due: p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "–",
-    }));
+    rows = rawProjects.slice(0, 5).map((p, i) => {
+      const ownerInitials = p.members?.[0]?.initials ?? "AK";
+      return {
+        name: p.name,
+        key: p.key ?? `PRJ-${i + 1}`,
+        owner: ownerInitials,
+        ownerColor: p.color ?? "oklch(0.55 0.22 279)",
+        status: p.status ?? "On track",
+        statusTone: p.status === "At risk" ? "warning" : p.status === "Blocked" ? "danger" : p.status === "In review" ? "info" : "success",
+        progress: p.progress ?? 0,
+        due: p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "–",
+      };
+    });
   }
 
   const tone = (t: string) => ({
@@ -575,80 +769,277 @@ function ProjectsTable({
           <Link to="/projects" className="text-[12px] font-semibold text-primary hover:underline">View all →</Link>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left">
-          <thead>
-            <tr className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <th className="py-2.5 pl-5 pr-3 font-semibold">Project</th>
-              <th className="py-2.5 px-3 font-semibold">Owner</th>
-              <th className="py-2.5 px-3 font-semibold">Status</th>
-              <th className="py-2.5 px-3 font-semibold">Progress</th>
-              <th className="py-2.5 pl-3 pr-5 font-semibold">Due</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.key ?? i} className="border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
-                <td className="py-3 pl-5 pr-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-6 w-6 place-items-center rounded-md bg-secondary text-muted-foreground">
-                      <GitBranch className="h-3.5 w-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-foreground">{r.name}</p>
-                      <p className="text-[10.5px] text-muted-foreground">{r.key}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-3 py-3">
-                  <span className="grid h-6 w-6 place-items-center rounded-full text-[9.5px] font-semibold text-white" style={{ background: r.ownerColor }}>{r.owner}</span>
-                </td>
-                <td className="px-3 py-3">
-                  <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold ${tone(r.statusTone)}`}>
-                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    {r.status}
-                  </span>
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-28 overflow-hidden rounded-full bg-secondary">
-                      <div className="h-full rounded-full bg-gradient-primary" style={{ width: `${r.progress}%` }} />
-                    </div>
-                    <span className="text-[11px] font-medium tabular-nums text-muted-foreground">{r.progress}%</span>
-                  </div>
-                </td>
-                <td className="pl-3 pr-5 py-3 text-[12px] text-muted-foreground tabular-nums">{r.due}</td>
+
+      {rows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <FolderKanban className="h-8 w-8 text-muted-foreground/50" />
+          <p className="mt-2.5 text-[13px] font-medium text-foreground">No projects in this workspace</p>
+          <p className="mt-0.5 max-w-xs text-[11.5px] text-muted-foreground">
+            Create your first project to start tracking team tasks and milestones.
+          </p>
+          <Link
+            to="/projects"
+            className="mt-3.5 inline-flex items-center gap-1.5 rounded-lg bg-gradient-primary px-3 py-1.5 text-[12px] font-semibold text-white shadow-xs hover:opacity-90"
+          >
+            <Plus className="h-3.5 w-3.5" /> Create project
+          </Link>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left">
+            <thead>
+              <tr className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <th className="py-2.5 pl-5 pr-3 font-semibold">Project</th>
+                <th className="py-2.5 px-3 font-semibold">Owner</th>
+                <th className="py-2.5 px-3 font-semibold">Status</th>
+                <th className="py-2.5 px-3 font-semibold">Progress</th>
+                <th className="py-2.5 pl-3 pr-5 font-semibold">Due</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.key ?? i} className="border-t border-border/50 text-[12.5px] transition-colors hover:bg-secondary/40">
+                  <td className="py-3 pl-5 pr-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="grid h-6 w-6 place-items-center rounded-md bg-secondary text-muted-foreground">
+                        <GitBranch className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-foreground">{r.name}</p>
+                        <p className="text-[10.5px] text-muted-foreground">{r.key}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="grid h-6 w-6 place-items-center rounded-full text-[9.5px] font-semibold text-white" style={{ background: r.ownerColor }}>{r.owner}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold ${tone(r.statusTone)}`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {r.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 w-28 overflow-hidden rounded-full bg-secondary">
+                        <div className="h-full rounded-full bg-gradient-primary" style={{ width: `${r.progress}%` }} />
+                      </div>
+                      <span className="text-[11px] font-medium tabular-nums text-muted-foreground">{r.progress}%</span>
+                    </div>
+                  </td>
+                  <td className="pl-3 pr-5 py-3 text-[12px] text-muted-foreground tabular-nums">{r.due}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* =========================== UPCOMING TASKS WIDGET =========================== */
+const PRIORITY_ORDER: Record<string, number> = {
+  Urgent: 4,
+  urgent: 4,
+  High: 3,
+  high: 3,
+  Medium: 2,
+  medium: 2,
+  Low: 1,
+  low: 1,
+};
+
+function UpcomingTasksWidget({
+  recentTasks,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+}: {
+  recentTasks?: ApiDashboardRecentTask[];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  onRetry: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <section className="h-56 rounded-xl border border-border/70 bg-white p-5 shadow-xs animate-pulse">
+        <div className="h-4 w-32 rounded bg-secondary/80" />
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error?.message ?? "Failed to load upcoming tasks."}</span>
+          </div>
+          <button
+            onClick={onRetry}
+            className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+          >
+            <RefreshCw className="h-3 w-3" /> Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  // Sort upcoming tasks by due date first, then highest priority
+  const sortedTasks = [...(recentTasks ?? [])].sort((a, b) => {
+    const dueA = a.dueDate ?? a.due;
+    const dueB = b.dueDate ?? b.due;
+    const timeA = dueA ? new Date(dueA).getTime() : Infinity;
+    const timeB = dueB ? new Date(dueB).getTime() : Infinity;
+
+    if (timeA !== timeB) return timeA - timeB;
+
+    const prioA = PRIORITY_ORDER[a.priority ?? ""] ?? 0;
+    const prioB = PRIORITY_ORDER[b.priority ?? ""] ?? 0;
+    return prioB - prioA;
+  });
+
+  const priorityBadge = (prio?: string) => {
+    switch (prio) {
+      case "Urgent":
+      case "urgent":
+        return "bg-danger/12 text-danger border-danger/20";
+      case "High":
+      case "high":
+        return "bg-warning/15 text-warning border-warning/25";
+      case "Medium":
+      case "medium":
+        return "bg-accent/15 text-accent-foreground border-accent/25";
+      default:
+        return "bg-secondary text-muted-foreground border-border/70";
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-border/70 bg-white shadow-xs">
+      <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
+        <div>
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">Upcoming tasks</h2>
+          <p className="mt-0.5 text-[12px] text-muted-foreground">Sorted by due date & priority</p>
+        </div>
+        <Link to="/tasks" className="text-[12px] font-semibold text-primary hover:underline">View all →</Link>
       </div>
+
+      {sortedTasks.length === 0 ? (
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <CheckSquare className="h-8 w-8 text-muted-foreground/50" />
+          <p className="mt-2.5 text-[13px] font-medium text-foreground">No upcoming tasks</p>
+          <p className="mt-0.5 max-w-xs text-[11.5px] text-muted-foreground">
+            All tasks are complete or no deadlines are set in this workspace.
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border/50">
+          {sortedTasks.slice(0, 6).map((t, idx) => {
+            const title = t.title ?? t.name ?? "Untitled task";
+            const dueLabel = t.dueDate ?? t.due ?? "No date";
+            const prio = t.priority ?? "Low";
+            const status = t.status ?? "Todo";
+            const rawAssignee = t.assignee;
+            const assigneeName =
+              typeof rawAssignee === "object" && rawAssignee !== null
+                ? rawAssignee.name
+                : typeof rawAssignee === "string"
+                ? rawAssignee
+                : undefined;
+            const assigneeInitials =
+              typeof rawAssignee === "object" && rawAssignee !== null && rawAssignee.initials
+                ? rawAssignee.initials
+                : assigneeName
+                ? assigneeName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
+                : null;
+
+            return (
+              <li key={t._id ?? t.id ?? idx} className="flex items-center justify-between gap-3 px-5 py-3 text-[12.5px]">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded border border-border/70 text-muted-foreground">
+                    <CheckSquare className="h-3 w-3" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-foreground">{title}</p>
+                    {t.project?.name && (
+                      <p className="text-[10.5px] text-muted-foreground">{t.project.name}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${priorityBadge(prio)}`}>
+                    <Flag className="h-2.5 w-2.5" /> {prio}
+                  </span>
+                  <span className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10.5px] text-muted-foreground">
+                    {status}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {dueLabel}
+                  </span>
+                  {assigneeInitials && (
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-primary/20 text-[9px] font-bold text-primary">
+                      {assigneeInitials}
+                    </span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }
 
 /* =========================== ACTIVITY FEED =========================== */
-function ActivityFeed({ dashboardActivity }: { dashboardActivity?: ApiDashboardData["recentActivity"] }) {
-  const DEFAULT_ITEMS = [
-    { who: "Ada K.", color: "oklch(0.72 0.16 180)", initials: "AK", action: "shipped", target: "PAY-142 · Refund flow polish", time: "2m ago", icon: CheckCircle2, tone: "text-success" },
-    { who: "Zabaku AI", color: "oklch(0.55 0.22 279)", initials: "AI", action: "generated 6 tickets in", target: "Onboarding revamp", time: "12m ago", icon: Sparkles, tone: "text-primary" },
-    { who: "Mira B.", color: "oklch(0.75 0.16 92)", initials: "MB", action: "commented on", target: "DS-22 · Motion tokens", time: "34m ago", icon: MessageSquare, tone: "text-muted-foreground" },
-    { who: "Sai R.", color: "oklch(0.68 0.17 28)", initials: "SR", action: "opened PR on", target: "MOB-03 · Push notifications", time: "1h ago", icon: GitBranch, tone: "text-muted-foreground" },
-    { who: "Priya S.", color: "oklch(0.62 0.19 30)", initials: "PS", action: "merged", target: "AI-01 · Copilot guardrails", time: "3h ago", icon: CheckCircle2, tone: "text-success" },
-  ];
+function ActivityFeed({
+  dashboardActivity,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+}: {
+  dashboardActivity?: ApiDashboardActivityItem[];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+  onRetry: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <section className="h-56 rounded-xl border border-border/70 bg-white p-5 shadow-xs animate-pulse">
+        <div className="h-4 w-32 rounded bg-secondary/80" />
+      </section>
+    );
+  }
 
-  const items = dashboardActivity && dashboardActivity.length > 0
-    ? dashboardActivity.map((it) => ({
-        who: it.who ?? "Teammate",
-        color: it.color ?? "oklch(0.55 0.22 279)",
-        initials: it.initials ?? (it.who ? it.who.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "U"),
-        action: it.action ?? "updated",
-        target: it.target ?? "task",
-        time: it.time ?? "recently",
-        icon: CheckCircle2,
-        tone: "text-success",
-      }))
-    : DEFAULT_ITEMS;
+  if (isError) {
+    return (
+      <section className="rounded-xl border border-border/70 bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12.5px] text-destructive">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error?.message ?? "Failed to load recent activity."}</span>
+          </div>
+          <button
+            onClick={onRetry}
+            className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[11.5px] font-semibold text-white hover:opacity-90"
+          >
+            <RefreshCw className="h-3 w-3" /> Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  const items = dashboardActivity ?? [];
 
   return (
     <section className="rounded-xl border border-border/70 bg-white shadow-xs">
@@ -659,24 +1050,44 @@ function ActivityFeed({ dashboardActivity }: { dashboardActivity?: ApiDashboardD
         </div>
         <Link to="/tasks" className="text-[12px] font-semibold text-primary hover:underline">Open feed →</Link>
       </div>
-      <ul className="divide-y divide-border/50">
-        {items.map((it, i) => (
-          <li key={i} className="flex items-start gap-3 px-5 py-3.5">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold text-white" style={{ background: it.color }}>{it.initials}</span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] text-foreground">
-                <span className="font-semibold">{it.who}</span>
-                <span className="text-muted-foreground"> {it.action} </span>
-                <span className="font-medium">{it.target}</span>
-              </p>
-              <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <it.icon className={`h-3 w-3 ${it.tone}`} />
-                {it.time}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
+
+      {items.length === 0 ? (
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <Clock className="h-8 w-8 text-muted-foreground/50" />
+          <p className="mt-2.5 text-[13px] font-medium text-foreground">No recent activity</p>
+          <p className="mt-0.5 max-w-xs text-[11.5px] text-muted-foreground">
+            Activity items will appear as team members update tasks and projects in this workspace.
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border/50">
+          {items.map((it, i) => {
+            const who = it.who ?? "Teammate";
+            const initials = it.initials ?? (who ? who.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : "U");
+            const color = it.color ?? "oklch(0.55 0.22 279)";
+            const action = it.action ?? "updated";
+            const target = it.target ?? "workspace item";
+            const time = it.time ?? "recently";
+
+            return (
+              <li key={i} className="flex items-start gap-3 px-5 py-3.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold text-white shadow-xs" style={{ background: color }}>{initials}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] text-foreground">
+                    <span className="font-semibold">{who}</span>
+                    <span className="text-muted-foreground"> {action} </span>
+                    <span className="font-medium">{target}</span>
+                  </p>
+                  <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <CheckCircle2 className="h-3 w-3 text-success" />
+                    {time}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }
@@ -705,18 +1116,19 @@ function AiAssistant({ firstName }: { firstName: string }) {
 
         <div className="mt-4 space-y-2">
           <div className="max-w-[90%] rounded-xl rounded-tl-md border border-border/60 bg-secondary/50 p-2.5 text-[12px] leading-relaxed text-foreground">
-            Morning {firstName} — <span className="font-semibold">3 tickets are in review</span> and active projects are on track. Want me to draft standup notes?
-          </div>
-          <div className="ml-auto max-w-[80%] rounded-xl rounded-tr-md bg-gradient-primary p-2.5 text-[12px] text-white">
-            Yes — plus a summary of this week's velocity.
+            Morning {firstName} — <span className="font-semibold">workspace ready</span>. Want me to summarize standup notes or draft a sprint plan?
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-1.5">
           {suggestions.map((s) => (
-            <button key={s} className="rounded-full border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary">
+            <Link
+              key={s}
+              to="/ai"
+              className="rounded-full border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary"
+            >
               {s}
-            </button>
+            </Link>
           ))}
         </div>
 
@@ -727,9 +1139,9 @@ function AiAssistant({ firstName }: { firstName: string }) {
             placeholder="Ask AI anything…"
             className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground/70"
           />
-          <button className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-primary text-white shadow-glow">
+          <Link to="/ai" className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-primary text-white shadow-glow">
             <Send className="h-3.5 w-3.5" />
-          </button>
+          </Link>
         </div>
       </div>
     </section>
@@ -741,9 +1153,9 @@ function QuickActions() {
   const actions = [
     { icon: Plus, label: "New project", href: "/projects", tone: "from-primary/12 to-primary/4 text-primary" },
     { icon: CheckSquare, label: "Add task", href: "/tasks", tone: "from-accent/15 to-accent/5 text-accent-foreground" },
-    { icon: FileText, label: "New doc", href: "#", tone: "from-success/15 to-success/5 text-success" },
-    { icon: Rocket, label: "Ship release", href: "#", tone: "from-warning/15 to-warning/5 text-warning" },
-    { icon: PlayCircle, label: "Start standup", href: "#", tone: "from-danger/12 to-danger/4 text-danger" },
+    { icon: FileText, label: "New doc", href: "/projects", tone: "from-success/15 to-success/5 text-success" },
+    { icon: Rocket, label: "Ship release", href: "/projects", tone: "from-warning/15 to-warning/5 text-warning" },
+    { icon: PlayCircle, label: "Start standup", href: "/ai", tone: "from-danger/12 to-danger/4 text-danger" },
     { icon: Inbox, label: "Triage inbox", href: "/notifications", tone: "from-secondary to-secondary text-foreground" },
   ];
   return (
@@ -821,37 +1233,29 @@ function CalendarCard() {
 
 /* =========================== NOTIFICATIONS =========================== */
 function NotificationsCard() {
-  const items = [
-    { icon: MessageSquare, tone: "bg-primary/12 text-primary", title: "Ada mentioned you", meta: "PAY-142 · 5m ago" },
-    { icon: CheckCircle2, tone: "bg-success/15 text-success", title: "PR merged: guardrails", meta: "AI-01 · 22m ago" },
-    { icon: Zap, tone: "bg-warning/15 text-warning", title: "Deploy needs approval", meta: "prod · 1h ago" },
-    { icon: TrendingUp, tone: "bg-accent/15 text-accent-foreground", title: "Velocity up 23%", meta: "Weekly digest" },
-  ];
+  const { data: unreadCount = 0 } = useUnreadNotifications();
+
   return (
     <section className="rounded-xl border border-border/70 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-border/70 px-5 py-3.5">
         <div className="flex items-center gap-2">
           <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">Notifications</h2>
-          <span className="rounded bg-danger/12 px-1.5 py-0.5 text-[10px] font-semibold text-danger">3 new</span>
-        </div>
-        <button className="text-[11.5px] font-semibold text-muted-foreground hover:text-foreground">Mark all read</button>
-      </div>
-      <ul className="divide-y divide-border/50">
-        {items.map((n, i) => (
-          <li key={i} className="flex items-center gap-3 px-5 py-3">
-            <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${n.tone}`}>
-              <n.icon className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="rounded bg-danger/12 px-1.5 py-0.5 text-[10px] font-semibold text-danger">
+              {unreadCount} unread
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px] font-semibold text-foreground">{n.title}</p>
-              <p className="text-[11px] text-muted-foreground">{n.meta}</p>
-            </div>
-            <Circle className="h-2 w-2 fill-primary text-primary" />
-          </li>
-        ))}
-      </ul>
-      <div className="border-t border-border/70 px-5 py-2.5 text-center">
-        <Link to="/notifications" className="text-[12px] font-semibold text-primary hover:underline">View all notifications</Link>
+          )}
+        </div>
+        <Link to="/notifications" className="text-[11.5px] font-semibold text-muted-foreground hover:text-foreground">View inbox</Link>
+      </div>
+      <div className="p-5 text-center">
+        <Bell className="mx-auto h-6 w-6 text-muted-foreground/50" />
+        <p className="mt-2 text-[12.5px] font-medium text-foreground">
+          {unreadCount > 0 ? `${unreadCount} unread notifications in your inbox` : "All notifications caught up!"}
+        </p>
+        <Link to="/notifications" className="mt-2 inline-block text-[12px] font-semibold text-primary hover:underline">
+          Open notification center →
+        </Link>
       </div>
     </section>
   );

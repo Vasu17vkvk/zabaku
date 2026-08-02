@@ -12,6 +12,7 @@ import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { MobileBottomNav } from "../components/layout/MobileBottomNav";
 import { AuthProvider } from "../context/AuthContext";
+import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { useSocketEvents } from "../hooks/useSocketEvents";
 
 function NotFoundComponent() {
@@ -128,8 +129,10 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RootContent />
-        <MobileBottomNav />
+        <WorkspaceProvider>
+          <RootContent />
+          <MobileBottomNav />
+        </WorkspaceProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

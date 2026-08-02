@@ -32,6 +32,7 @@ export interface ApiDashboardRecentTask {
   dueDate?: string;
   due?: string;
   updatedAt?: string;
+  assignee?: string | { id?: string; name?: string; initials?: string; color?: string };
   project?: {
     name?: string;
     key?: string;
@@ -102,8 +103,9 @@ type Envelope = {
 // ---------------------------------------------------------------------------
 
 /** Fetch dashboard overview statistics. */
-export async function getDashboard(): Promise<ApiDashboardData> {
-  const res = await api<Envelope | ApiDashboardData>("/dashboard");
+export async function getDashboard(workspaceId?: string | null): Promise<ApiDashboardData> {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+  const res = await api<Envelope | ApiDashboardData>(`/dashboard${query}`);
   if (res && typeof res === "object") {
     if ("totalWorkspaces" in res || "totalProjects" in res || "totalTasks" in res || "tasksByStatus" in res) {
       return res as ApiDashboardData;
