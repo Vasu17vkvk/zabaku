@@ -43,27 +43,51 @@ interface ApiItemResponse<T> {
   workspace?: T;
 }
 
-function extractList<T>(res: ApiListResponse<T>): T[] {
-  if (Array.isArray(res)) return res as T[];
-  if (res.data) {
-    if (Array.isArray(res.data)) return res.data;
-    const nested = (res.data as { workspaces?: T[] }).workspaces;
-    if (Array.isArray(nested)) return nested;
-  }
-  if (Array.isArray(res.workspaces)) return res.workspaces;
-  return [];
+// ---------------------------------------------------------------------------
+// Normalize MongoDB _id -> id
+// ---------------------------------------------------------------------------
+
+function normalizeWorkspace(data: any): Workspace {
+  return {
+    ...data,
+    id: data.id ?? data._id,
+  };
 }
 
-function extractItem<T>(res: ApiItemResponse<T>): T {
-  if (res && typeof res === "object" && "id" in res) return res as T;
-  if (res.data) {
-    const d = res.data as T | { workspace?: T };
-    if (d && typeof d === "object" && "id" in d) return d as T;
-    const nested = (d as { workspace?: T }).workspace;
-    if (nested) return nested;
+function extractList<T>(res: ApiListResponse<any>): T[] {
+  let list: any[] = [];
+
+  if (Array.isArray(res)) {
+    list = res;
+  } else if (res.data) {
+    if (Array.isArray(res.data)) {
+      list = res.data;
+    } else if (Array.isArray((res.data as any).workspaces)) {
+      list = (res.data as any).workspaces!;
+    }
+  } else if (Array.isArray(res.workspaces)) {
+    list = res.workspaces;
   }
-  if (res.workspace) return res.workspace;
-  return res as unknown as T;
+
+  return list.map(normalizeWorkspace) as T[];
+}
+
+function extractItem<T>(res: ApiItemResponse<any>): T {
+  let item: any = null;
+
+  if (res.data) {
+    if ((res.data as any).workspace) {
+      item = (res.data as any).workspace;
+    } else {
+      item = res.data;
+    }
+  } else if (res.workspace) {
+    item = res.workspace;
+  } else {
+    item = res;
+  }
+
+  return normalizeWorkspace(item) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,15 +97,23 @@ function extractItem<T>(res: ApiItemResponse<T>): T {
 /** Fetch all workspaces for the authenticated user. */
 export async function getWorkspaces(): Promise<Workspace[]> {
   const res = await api<ApiListResponse<Workspace>>("/workspaces");
-  return extractList(res);
+
+  const workspaces = extractList<Workspace>(res);
+
+  console.log("WORKSPACES:", workspaces);
+
+  return workspaces;
 }
 
 /** Fetch a single workspace by ID. */
-export async function getWorkspace(workspaceId: string): Promise<Workspace> {
+export async function getWorkspace(
+  workspaceId: string
+): Promise<Workspace> {
   const res = await api<ApiItemResponse<Workspace>>(
     `/workspaces/${workspaceId}`
   );
-  return extractItem(res);
+
+  return extractItem<Workspace>(res);
 }
 
 /** Create a new workspace. */
@@ -92,7 +124,8 @@ export async function createWorkspace(
     method: "POST",
     body: input,
   });
-  return extractItem(res);
+
+  return extractItem<Workspace>(res);
 }
 
 /** Partially update a workspace. */
@@ -102,12 +135,20 @@ export async function updateWorkspace(
 ): Promise<Workspace> {
   const res = await api<ApiItemResponse<Workspace>>(
     `/workspaces/${workspaceId}`,
-    { method: "PATCH", body: input }
+    {
+      method: "PATCH",
+      body: input,
+    }
   );
-  return extractItem(res);
+
+  return extractItem<Workspace>(res);
 }
 
 /** Delete a workspace by ID. */
-export async function deleteWorkspace(workspaceId: string): Promise<void> {
-  await api<unknown>(`/workspaces/${workspaceId}`, { method: "DELETE" });
+export async function deleteWorkspace(
+  workspaceId: string
+): Promise<void> {
+  await api(`/workspaces/${workspaceId}`, {
+    method: "DELETE",
+  });
 }

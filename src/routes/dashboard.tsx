@@ -20,6 +20,10 @@ import { useUnreadNotifications } from "@/features/notifications/hooks";
 import type { ApiDashboardData, ApiDashboardRecentProject, ApiDashboardRecentTask, ApiDashboardActivityItem } from "@/features/dashboard/api";
 import type { ApiProject } from "@/features/projects/api";
 
+import { CreateWorkspaceDialog } from "@/features/workspaces/components/CreateWorkspaceDialog";
+
+import { useRouter } from "@tanstack/react-router";
+
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
@@ -135,6 +139,8 @@ function WorkspaceSwitcher() {
   const { workspace, workspaces, workspaceId, setWorkspace, isLoading } = useWorkspace();
   const [open, setOpen] = useState(false);
 
+  const [createOpen, setCreateOpen] = useState(false);
+
   const wsName = workspace?.name ?? "Select Workspace";
   const wsInitial = wsName.charAt(0).toUpperCase();
 
@@ -183,11 +189,10 @@ function WorkspaceSwitcher() {
                       setWorkspace(ws.id);
                       setOpen(false);
                     }}
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium transition-colors ${
-                      active
-                        ? "bg-primary/10 text-primary font-semibold"
-                        : "text-foreground hover:bg-secondary"
-                    }`}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium transition-colors ${active
+                      ? "bg-primary/10 text-primary font-semibold"
+                      : "text-foreground hover:bg-secondary"
+                      }`}
                   >
                     <span className="grid h-5 w-5 shrink-0 place-items-center rounded text-[9.5px] font-bold text-white bg-primary">
                       {init}
@@ -199,17 +204,24 @@ function WorkspaceSwitcher() {
               })
             )}
             <div className="mt-1 border-t border-border/60 pt-1">
-              <Link
-                to="/settings"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setCreateOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] font-medium text-primary hover:bg-primary/10"
               >
-                <Settings className="h-3 w-3" /> Manage workspaces
-              </Link>
+                <Plus className="h-4 w-4" />
+                Create Workspace
+              </button>
             </div>
           </div>
         </>
       )}
+      <CreateWorkspaceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+      />
     </div>
   );
 }
@@ -251,20 +263,18 @@ function Sidebar({ user }: { user?: { name?: string } | null }) {
             <li key={item.label}>
               <Link
                 to={item.href}
-                className={`group flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all ${
-                  item.active
-                    ? "bg-secondary text-foreground shadow-xs"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                }`}
+                className={`group flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all ${item.active
+                  ? "bg-secondary text-foreground shadow-xs"
+                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                  }`}
               >
                 <item.icon className={`h-4 w-4 ${item.active ? "text-primary" : ""}`} />
                 <span className="flex-1">{item.label}</span>
                 {item.badge && (
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                    item.badge === "New"
-                      ? "bg-gradient-primary text-white"
-                      : "bg-white text-muted-foreground border border-border/70"
-                  }`}>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${item.badge === "New"
+                    ? "bg-gradient-primary text-white"
+                    : "bg-white text-muted-foreground border border-border/70"
+                    }`}>
                     {item.badge}
                   </span>
                 )}
@@ -363,6 +373,28 @@ function Topbar({ user }: { user?: { name?: string } | null }) {
 
 /* =========================== PAGE HEADER =========================== */
 function PageHeader({ firstName, workspaceName }: { firstName: string; workspaceName: string }) {
+  const router = useRouter();
+
+  const { workspaces, workspaceId } = useWorkspace();
+
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const handleNewProject = () => {
+    if (workspaces.length === 0) {
+      setCreateOpen(true);
+      return;
+    }
+
+    if (!workspaceId) {
+      alert("Please select a workspace first.");
+      return;
+    }
+
+    router.navigate({
+      to: "/projects",
+    });
+  };
+
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 sm:flex sm:flex-wrap sm:justify-between">
       <div className="min-w-0">
@@ -382,11 +414,18 @@ function PageHeader({ firstName, workspaceName }: { firstName: string; workspace
           Last 30 days
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </button>
-        <Link to="/projects" className="flex h-9 items-center gap-1.5 rounded-lg bg-gradient-primary px-3 text-[12.5px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02]">
+        <button
+          onClick={handleNewProject}
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-gradient-primary px-3 text-[12.5px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02]"
+        >
           <Plus className="h-3.5 w-3.5" />
           New project
-        </Link>
+        </button>
       </div>
+      <CreateWorkspaceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+      />
     </div>
   );
 }
@@ -445,10 +484,10 @@ function StatCards({
     typeof dashboard?.completedTasks === "number"
       ? dashboard.completedTasks
       : typeof dashboard?.shippedTasks === "number"
-      ? dashboard.shippedTasks
-      : typeof dashboard?.tasksByStatus?.done === "number"
-      ? dashboard.tasksByStatus.done
-      : 0;
+        ? dashboard.shippedTasks
+        : typeof dashboard?.tasksByStatus?.done === "number"
+          ? dashboard.tasksByStatus.done
+          : 0;
   const totalMembers = typeof dashboard?.membersCount === "number" ? dashboard.membersCount : membersCount;
 
   const cards = [
@@ -950,14 +989,14 @@ function UpcomingTasksWidget({
               typeof rawAssignee === "object" && rawAssignee !== null
                 ? rawAssignee.name
                 : typeof rawAssignee === "string"
-                ? rawAssignee
-                : undefined;
+                  ? rawAssignee
+                  : undefined;
             const assigneeInitials =
               typeof rawAssignee === "object" && rawAssignee !== null && rawAssignee.initials
                 ? rawAssignee.initials
                 : assigneeName
-                ? assigneeName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
-                : null;
+                  ? assigneeName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
+                  : null;
 
             return (
               <li key={t._id ?? t.id ?? idx} className="flex items-center justify-between gap-3 px-5 py-3 text-[12.5px]">
@@ -1207,7 +1246,7 @@ function CalendarCard() {
       </div>
 
       <div className="mt-3 grid grid-cols-7 gap-y-1 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {["S","M","T","W","T","F","S"].map((d, i) => <div key={i}>{d}</div>)}
+        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i}>{d}</div>)}
       </div>
       <div className="mt-1 grid grid-cols-7 gap-1">
         {days.map((d, i) => {
@@ -1216,11 +1255,10 @@ function CalendarCard() {
           return (
             <button
               key={i}
-              className={`relative aspect-square rounded-md text-[11px] font-medium transition-all ${
-                !valid ? "text-transparent" :
+              className={`relative aspect-square rounded-md text-[11px] font-medium transition-all ${!valid ? "text-transparent" :
                 isToday ? "bg-gradient-primary text-white shadow-glow" :
-                "text-foreground hover:bg-secondary"
-              }`}
+                  "text-foreground hover:bg-secondary"
+                }`}
             >
               {valid ? d : "0"}
             </button>

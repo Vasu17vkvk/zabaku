@@ -13,8 +13,10 @@ import {
     createWorkspace,
     getUserWorkspaces,
     getWorkspaceById,
+    getWorkspaceMembers,
     updateWorkspace,
     addMemberToWorkspace,
+    updateWorkspaceMemberRole,
     removeMemberFromWorkspace,
 } from "../services/workspace.service";
 
@@ -60,6 +62,20 @@ export const getById = asyncHandler(async (req: Request, res: Response) => {
     );
 });
 
+export const getMembers = asyncHandler(async (req: Request, res: Response) => {
+    const members = await getWorkspaceMembers(
+        req.params.workspaceId as string,
+        req.user!._id.toString()
+    );
+
+    return sendSuccess(
+        res,
+        200,
+        "Members fetched successfully",
+        members
+    );
+});
+
 export const update = asyncHandler(async (req: Request, res: Response) => {
     const validatedData = updateWorkspaceSchema.parse(req.body);
 
@@ -91,6 +107,22 @@ export const addMember = asyncHandler(async (req: Request, res: Response) => {
         200,
         "Member added successfully",
         workspace
+    );
+});
+
+export const updateMember = asyncHandler(async (req: Request, res: Response) => {
+    const member = await updateWorkspaceMemberRole(
+        req.params.workspaceId as string,
+        req.user!._id.toString(),
+        req.params.memberId as string,
+        req.body.role
+    );
+
+    return sendSuccess(
+        res,
+        200,
+        "Member updated successfully",
+        member
     );
 });
 

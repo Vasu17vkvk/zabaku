@@ -1,14 +1,18 @@
 import { AppError } from "../errors/AppError";
-import { WorkspaceRole } from "../constants/workspace.constants";
 
 export function requireWorkspaceRole(
     workspace: any,
     userId: string,
     allowedRoles: string[]
 ) {
-    const member = workspace.members.find(
-        (member: any) => member.user.toString() === userId
-    );
+    const member = workspace.members.find((member: any) => {
+        const id =
+            typeof member.user === "object"
+                ? member.user._id?.toString()
+                : member.user.toString();
+
+        return id === userId;
+    });
 
     if (!member) {
         throw new AppError("Access denied", 403);
@@ -20,4 +24,3 @@ export function requireWorkspaceRole(
 
     return member;
 }
-

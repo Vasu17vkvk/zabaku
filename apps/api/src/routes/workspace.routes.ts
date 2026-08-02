@@ -6,8 +6,10 @@ import {
     create,
     getAll,
     getById,
+    getMembers,
     update,
     addMember,
+    updateMember,
     removeMember,
 } from "../controllers/workspace.controller";
 
@@ -31,10 +33,22 @@ router.patch(
     update
 );
 
+router.get(
+    "/:workspaceId/members",
+    authenticate,
+    getMembers
+);
+
 router.post(
     "/:workspaceId/members",
     authenticate,
     addMember
+);
+
+router.patch(
+    "/:workspaceId/members/:memberId",
+    authenticate,
+    updateMember
 );
 
 router.delete(
@@ -42,6 +56,7 @@ router.delete(
     authenticate,
     removeMember
 );
+
 
 router.use(
     "/:workspaceId/projects",

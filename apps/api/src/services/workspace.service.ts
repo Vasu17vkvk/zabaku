@@ -5,7 +5,10 @@ import { Types } from "mongoose";
 
 import { AppError } from "../errors/AppError";
 
-import { WorkspaceRole } from "../constants/workspace.constants";
+import {
+    WorkspaceRole,
+    WorkspaceRoleType,
+} from "../constants/workspace.constants";
 
 import { UpdateWorkspaceDto } from "../dtos/workspace/UpdateWorkspace.dto";
 import { requireWorkspaceRole } from "../utils/workspacePermissions";
@@ -60,6 +63,29 @@ export async function getWorkspaceById(
     }
 
     return workspace;
+}
+
+export async function getWorkspaceMembers(
+    workspaceId: string,
+    userId: string
+) {
+    const workspace = await Workspace.findById(workspaceId)
+        .populate({
+            path: "members.user",
+            select: "name email avatarUrl",
+        });
+
+    if (!workspace) {
+        throw new AppError("Workspace not found", 404);
+    }
+
+    requireWorkspaceRole(workspace, userId, [
+        WorkspaceRole.OWNER,
+        WorkspaceRole.ADMIN,
+        WorkspaceRole.MEMBER,
+    ]);
+
+    return workspace.members;
 }
 
 export async function updateWorkspace(
@@ -145,6 +171,38 @@ export async function addMemberToWorkspace(
     await workspace.save();
 
     return workspace;
+}
+
+export async function updateWorkspaceMemberRole(
+    workspaceId: string,
+    currentUserId: string,
+    memberId: string,
+    role: WorkspaceRoleType
+) {
+    const workspace = await Workspace.findById(workspaceId);
+
+    if (!workspace) {
+        throw new AppError("Workspace not found", 404);
+    }
+
+    requireWorkspaceRole(workspace, currentUserId, [
+        WorkspaceRole.OWNER,
+        WorkspaceRole.ADMIN,
+    ]);
+
+    const member = workspace.members.find(
+        (m: any) => m.user.toString() === memberId
+    );
+
+    if (!member) {
+        throw new AppError("Member not found", 404);
+    }
+
+    member.role = role;
+
+    await workspace.save();
+
+    return member;
 }
 
 export async function removeMemberFromWorkspace(
